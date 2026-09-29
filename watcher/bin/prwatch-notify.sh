@@ -23,6 +23,8 @@ case $kind in
               session-ended) msg="The PR watcher stopped before 16:00 - double-click PR Watcher to restart.";;
               superseded)    msg="This watcher window was replaced by a newer one. Please close this old window (it can't finish or post anything).";;
               launcher)      msg="PR Watcher could not start - see its Terminal window.";;
+              harness)       msg="Reviewers ran in the background (Claude Code update?). Review stopped and the watcher is off for today - see the window.";;
+              hookdrift)     msg="Claude Code changed how it reports subagents - the background-agent check may not work. Check before relying on the watcher.";;
               *)             msg="Problem: $(clean "$ref") - see the PR watcher window.";;
             esac ;;
   eod)      sub="End of day"; snd=""; msg=$(clean "$ref" 80) ;;

@@ -4,7 +4,9 @@
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob nullglob
 PRW=$HOME/prwatch; export GIT_CONFIG_GLOBAL=$PRW/config/gitconfig GIT_CONFIG_NOSYSTEM=1
-if [[ ${1:-} == --sweep ]]; then targets=( $PRW/work/*(/Nm+3) )
+if [[ ${1:-} == --sweep ]]; then targets=( $PRW/work/*(/Nm+3) ); [[ -n ${PRWATCH_TESTMODE:-} ]] && targets=()   # tests never sweep real worktrees
+  H=$PRW/state/harness; [[ -n ${PRWATCH_TESTMODE:-} ]] && H=${PRWATCH_STATE_DIR:-$PRW/test/state}/harness
+  old=( $H/*.(marker|stopped|ended)(Nm+1) ); (( ${#old} )) && mkdir -p $H/done && mv $old $H/done/   # other days' agenthook markers
 else [[ ${1:-} == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## ]] || exit 64; k=${1#ACT-Training/}; targets=( $PRW/work/${k%%\#*}-pr${k##*\#}-*(/N) ); fi
 for t in $targets; do
   if [[ $t == *-build ]]; then rm -rf -- $t            # standalone copy: never run git in it

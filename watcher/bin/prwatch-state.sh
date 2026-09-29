@@ -2,6 +2,7 @@
 # prwatch-state.sh — the only writer of state.json.
 #   set <key> <status> [k=v ...] | freeze <key> | get <key> | pause <min> | stop-today | go-ahead <key> <sha40> | daily-inc
 #   | miss <key> <n>   (withdrawn-pass counter; changes nothing else, no event, no notification)
+#   | harness-abort <key>   (reviewers ran in the background: requeue, refund today's slot, stop today; needs agenthook markers)
 # Values must match [A-Za-z0-9._/:@#+-]* — e.g. recommendation=request-changes (not "REQUEST CHANGES").
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/usr/bin:/bin LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
@@ -37,5 +38,30 @@ case ${1:-} in
   go-ahead) okkey ${2:-}; [[ ${3:-} == [0-9a-f](#c40) ]] || exit 64; write --arg k $2 --arg s $3 '.go_ahead[$k]=$s' ;;
   daily-inc) write --arg d $(date +%F) '.daily[$d] = ((.daily[$d] // 0) + 1)' ;;
   miss) okkey ${2:-}; [[ ${3:-} == [0-9]## ]] || exit 64; write --arg k $2 --argjson m $3 'if .prs[$k] then .prs[$k].miss=$m else . end' ;;
+  harness-abort) okkey ${2:-}; key=$2; H=$S/harness; setopt nullglob   # authorised only by prwatch-agenthook.sh markers
+       [[ "$(jq -r --arg k $key '.prs[$k].status // ""' $F)" == reviewing ]] || { print "not reviewing"; exit 64; }
+       mine=(); live=0
+       for m in $H/*.marker $H/*.stopped; do
+         [[ "$(jq -r '"\(.session) \(.key)"' $m 2>/dev/null)" == "$PRWATCH_SESSION_ID $key" ]] || continue
+         mine+=($m); [[ $m == *.marker ]] && (( live++ ))
+       done
+       (( ${#mine} )) || { print "no harness fault recorded"; exit 64; }
+       (( live )) && { print "reviewers still running - TaskStop them first"; exit 64; }
+       k=${key#ACT-Training/}; wt=${PRW:A}/work/${k%%\#*}-pr${k##*\#}-     # :A — lsof reports real paths
+       # PR processes left behind: cwd inside the PR's worktrees (anyone's — only PR code works there), or the worktree
+       # path on the command line of a descendant of this watcher's launcher (never Jack's own editor or pager)
+       root=${PRWATCH_PID:-0}; [[ $root == <-> ]] || root=0
+       for pid in ${(f)"$( { /usr/sbin/lsof -d cwd -Fpn 2>/dev/null | awk -v w=$wt '/^p/{p=substr($0,2)} /^n/{if(index(substr($0,2),w)==1)print p}'
+                            (( root > 0 )) && /bin/ps -axo pid=,ppid=,command= | PW_WT=$wt awk -v r=$root '   # path via env: awk must not match itself
+                              {pp[$1]=$2; if(index($0,ENVIRON["PW_WT"])) hit[$1]=1}
+                              END{for(p in hit){q=p; while(q>1 && q!=r) q=pp[q]; if(q==r) print p}}'; } | sort -u )"}; do
+         [[ $pid == <-> && $pid != $$ ]] && kill -9 $pid 2>/dev/null
+       done
+       $PRW/bin/prwatch-cleanup.sh $key
+       mkdir -p $H/done; mv $mine $H/done/
+       write --arg k $key --arg t $now --arg d $(date +%F) \
+         '.prs[$k] = (.prs[$k] | .status="queued" | .updated_at=$t | del(.step)) | .daily[$d] = ([((.daily[$d] // 0) - 1), 0] | max)'
+       touch $S/stopped-$(date +%F)
+       print -r -- "{\"t\":\"$now\",\"key\":\"$key\",\"status\":\"queued\",\"harness_abort\":true}" >> $S/events.jsonl ;;
   *) print "usage"; exit 64 ;;
 esac

@@ -17,10 +17,17 @@ rsync -a --delete-after \
   --exclude state --exclude repos --exclude cache --exclude work --exclude gh-empty \
   --exclude 'test/archive' --exclude 'test/builder-evidence' --exclude 'test/state' \
   "$SRC/" "$DEST/"
-chmod +x "$DEST"/bin/*.sh "$DEST"/test/stub/osascript "$DEST"/test/sim2/*.sh 2>/dev/null || true
+chmod +x "$DEST"/bin/*.sh "$DEST"/test/harness/*.sh "$DEST"/test/stub/osascript "$DEST"/test/sim2/*.sh 2>/dev/null || true
 
-cp "${0:A:h}/launcher/PR Watcher.command" "$HOME/Desktop/PR Watcher.command"
-chmod +x "$HOME/Desktop/PR Watcher.command"
+# A launcher you have double-clicked gets macOS's com.apple.macl protection: it can't be overwritten, only replaced.
+L="$HOME/Desktop/PR Watcher.command"
+rm -f "$L" 2>/dev/null || true
+if ! cp "${0:A:h}/launcher/PR Watcher.command" "$L"; then
+  echo "~/prwatch is updated, but macOS blocked replacing the Desktop launcher."
+  echo "Drag 'PR Watcher' from the Desktop to the Bin in Finder, then run install.sh again."
+  exit 1
+fi
+chmod +x "$L"
 
 echo "Installed to $DEST and ~/Desktop/PR Watcher.command"
 echo "Re-lock when done testing:  chflags -R uchg ~/prwatch/{bin,config,.claude,angles,CLAUDE.md}"

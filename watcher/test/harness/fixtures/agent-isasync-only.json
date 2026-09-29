@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","tool_name":"Agent","tool_input":{"description":"x","prompt":"y"},"tool_response":{"status":"something_new","isAsync":true,"agentId":"a333"}}

@@ -13,7 +13,8 @@
     "MSBUILDDISABLENODEREUSE": "1",
     "DOTNET_CLI_USE_MSBUILD_SERVER": "0",
     "npm_config_cache": "/Users/jack/prwatch/cache/npm",
-    "CHROME_BIN": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    "CHROME_BIN": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"
   },
   "permissions": {
     "defaultMode": "auto",
@@ -36,7 +37,8 @@
       "Skill(prwatch-tick)",
       "Skill(prwatch-review *)",
       "Skill(prwatch-decide *)",
-      "Skill(prwatch-eod)"
+      "Skill(prwatch-eod)",
+      "TaskStop"
     ],
     "ask": [
       "Bash(/Users/jack/prwatch/bin/prwatch-post.sh *)",
@@ -178,9 +180,27 @@
             "command": "/Users/jack/prwatch/bin/prwatch-guard.sh"
           }
         ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jack/prwatch/bin/prwatch-agenthook.sh pre"
+          }
+        ]
       }
     ],
     "PostToolUse": [
+      {
+        "matcher": "Agent|TaskStop",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jack/prwatch/bin/prwatch-agenthook.sh post"
+          }
+        ]
+      },
       {
         "matcher": "*",
         "hooks": [
@@ -218,6 +238,16 @@
           {
             "type": "command",
             "command": "/usr/bin/touch /Users/jack/prwatch/state/activity"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jack/prwatch/bin/prwatch-agenthook.sh ended"
           }
         ]
       }

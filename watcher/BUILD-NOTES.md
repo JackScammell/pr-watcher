@@ -77,3 +77,11 @@ See the final report. Raw outputs: `test/t2-prep.out`, `test/state/notify.log`, 
 
 ## Orchestrator change (2026-09-29)
 - Added sandbox credentials deny + Read deny for `~/Documents/GitHub` (Jack's own clones hold `auth.json` Flux keys and `.env` files). The watcher never needs them: it uses its own clones in `~/prwatch/repos`. Closes builder open risk 5.
+
+## Background-agent fix (2026-09-29, after the first live run)
+- Claude Code auto-updated to 2.1.284 at 10:37. From that version, `Agent` defaults to background and `run_in_background` is gone from its schema. The first live council (Vision#1742) came back with `async_launched` reviewers and was stopped by hand.
+- Fix: `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` in settings `env` and in the launcher.
+- Backstop: `bin/prwatch-agenthook.sh` hooks, `prwatch-state.sh harness-abort`, start self-test 7.
+- Full design, the council rounds and the evidence are in `docs/fix-background-agents.md`. Tests: `test/harness/run.sh` (113/113, mutation-checked), plus `test/harness/live-check.sh` against real Claude Code. Run the live check after every Claude Code update.
+- The hook writes `state/harness/` and `state/stopped-*` directly: it is harness-run code like the `touch state/activity` hooks, not the model. That is deliberate, so a missing or mismatched session lock can't disable it.
+- Follow-up: auto mode delivers subagent reports as `[Subagent hand-back]` messages (`SubagentHandback`). Test 7 and review §4 now accept that. See "Auto-mode hand-back" in the doc.

@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","tool_name":"Agent","tool_input":{"description":"x","prompt":"y"},"tool_response":{"status":"completed","handback":"withheld","agentId":"a666","content":[{"type":"text","text":"This agent's report was withheld."}]}}

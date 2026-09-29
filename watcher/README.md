@@ -25,6 +25,17 @@ The PR Watcher keeps an eye on GitHub for pull requests where someone has asked 
 
 **If something goes wrong** you get a Mac notification: GitHub login expired, the watcher stopped before 16:00, or nothing has happened for 30 minutes (usually a prompt or dialog waiting for you).
 
+**"Reviewers ran in the background"** means Claude Code ran the reviewers in the background instead of the foreground, usually after a Claude Code update. It is a **harness fault**; nothing is wrong with the PR. The watcher stops the reviewers, puts the PR back in the queue, gives back the day's review slot, and stops for the rest of the day. Don't restart it straight away. Instead:
+1. run `claude --version`;
+2. check that `~/prwatch/config/settings.json` still has `"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"` under `env`;
+3. run `~/prwatch/test/harness/live-check.sh`.
+
+If the live check passes, delete `~/prwatch/state/stopped-<today>` and relaunch. If it fails, ask Claude to look at it. The same applies if self-test 7 says `PROBLEM` at launch.
+
+**"Claude Code changed how it reports subagents"** (hookdrift) means the background check may not recognise what Claude Code now sends back. The watcher keeps running. Run `~/prwatch/test/harness/live-check.sh` before relying on it.
+
+**After every Claude Code update** run `~/prwatch/test/harness/live-check.sh` (about 3 minutes, a few cheap model calls). It checks the behaviour the watcher's safety checks depend on.
+
 Reviews and drafts are kept in `~/Documents/vision-reviews/<date>-pr<N>-round<k>/`.
 
 ## One-time setup: notifications (do this before test T1)
@@ -77,7 +88,7 @@ export PRWATCH_TESTMODE=1 PRWATCH_STATE_DIR=~/prwatch/test/state PRWATCH_ARCHIVE
 
 | # | Test | What to do | Expected |
 |---|---|---|---|
-| T0 | First launch | Double-click **PR Watcher** on the Desktop (install steps are done). | The window prints `claude: … (2.1.x …)`. A one-time "trust this folder" prompt. The self-test lines say: sandbox on, auto mode, opus, no MCP servers, no PermissionRequest hooks, and code-review/security-review/schedule/loop absent. Then type `stop`, then `/exit`. |
+| T0 | First launch | Double-click **PR Watcher** on the Desktop (install steps are done). | The window prints `claude: … (2.1.x …)`. A one-time "trust this folder" prompt. The self-test lines say: sandbox on, auto mode, opus, no MCP servers, no PermissionRequest hooks, code-review/security-review/schedule/loop absent, and (test 7) foreground subagents OK: Bash has no `run_in_background`, and the `PONG` probe replied, usually through a `[Subagent hand-back]` message. Then type `stop`, then `/exit`. |
 | T1 | Notifications (run twice: Alerts, then Banners) | `~/prwatch/bin/prwatch-notify.sh test x` (in a Terminal **without** the test-mode export) | A notification with the Glass sound. `tail -1 ~/prwatch/state/notify.log` shows `test x :: Test notification…`. Keep the style you prefer. |
 | T2 | Prep on the test PR (already run by the builder, see BUILD-NOTES) | `~/prwatch/bin/prwatch-prep.sh Vision 1803 7458ff7f6973c8a0bc988b88a1816abcd01068e8 1` | Prints an archive folder under `~/prwatch/test/archive`. `prebuild.log` there shows `Restored …api/…csproj` and `added N packages`, and no `MSB1025`/`MSB1003`/`command not found`. |
 | T3 | Window times (builder ran it) | `for t in 07:59 08:00 15:29 15:30 15:59 16:00; do PRWATCH_NOW=2026-09-29T$t ~/prwatch/bin/prwatch-tick.sh --window; done` | outside, in, in, start_closed, start_closed, outside. |
@@ -97,6 +108,8 @@ export PRWATCH_TESTMODE=1 PRWATCH_STATE_DIR=~/prwatch/test/state PRWATCH_ARCHIVE
 | T15 | Sandboxed tests (before the first live day) | After T2, run T6 and let the testing-build reviewer run. Then at the question type `run tests`. | `dotnet test` runs in the sandbox under both time zones; ng test runs or is recorded as could-not-run; `run tests` shows the "run outside the sandbox?" dialog. **If the sandboxed dotnet test can't run, tell the builder: automatic tests switch to "only when you type run tests".** |
 | T16 | Title injection (builder ran the stub version) | Run the **T16 commands** below the table. | The notification shows the cleaned title as plain text; nothing runs. |
 | T-CGEvent | Synthetic clicks | See the plan (§10). Only at a throwaway dialog and a throwaway permission prompt, never the real post dialog. | Both attempts fail. |
+
+**Background-agent safety checks:** `~/prwatch/test/harness/run.sh` (offline, about 10 seconds, prints `N/N passed`), and `~/prwatch/test/harness/live-check.sh` (real Claude Code, about 3 minutes; run it after every Claude Code update). See `docs/fix-background-agents.md` in the repo.
 
 **T5 command:**
 ```
