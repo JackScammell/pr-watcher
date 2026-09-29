@@ -1,0 +1,4 @@
+#!/bin/zsh
+print -r -- "osascript $*" >> ~/prwatch/test/stub/osa.log
+[[ "$*" == *"display dialog"* ]] && print Cancel
+exit 0

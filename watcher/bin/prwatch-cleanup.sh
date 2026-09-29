@@ -1,0 +1,13 @@
+#!/bin/zsh
+# prwatch-cleanup.sh <key> | --sweep   — removes both worktrees for a PR (or any older than 3 days)
+[[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/opt/homebrew/bin:/usr/bin:/bin PRWATCH_CLEAN=1 \
+  ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
+emulate -L zsh; set -u; setopt extendedglob nullglob
+PRW=$HOME/prwatch; export GIT_CONFIG_GLOBAL=$PRW/config/gitconfig GIT_CONFIG_NOSYSTEM=1
+if [[ ${1:-} == --sweep ]]; then targets=( $PRW/work/*(/Nm+3) )
+else [[ ${1:-} == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## ]] || exit 64; k=${1#ACT-Training/}; targets=( $PRW/work/${k%%\#*}-pr${k##*\#}-*(/N) ); fi
+for t in $targets; do
+  if [[ $t == *-build ]]; then rm -rf -- $t            # standalone copy: never run git in it
+  else r=${${t:t}%%-pr*}; git -c core.hooksPath=/dev/null -C $PRW/repos/$r worktree remove --force $t 2>/dev/null || rm -rf -- $t; fi
+done
+for r in $PRW/repos/*(/N); do git -c core.hooksPath=/dev/null -C $r worktree prune; done

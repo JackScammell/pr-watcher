@@ -1,0 +1,13 @@
+# Runtime data — never commit (PR content, state, clones, caches)
+state/
+repos/
+cache/
+work/
+gh-empty/
+watcher/test/archive/
+watcher/test/builder-evidence/
+watcher/test/state/
+watcher/test/stub/*.log
+watcher/.claude/scheduled_tasks.lock
+*.lock
+.DS_Store

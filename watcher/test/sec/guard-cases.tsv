@@ -1,0 +1,35 @@
+2	gh pr comment 1 --body x
+2	/opt/homebrew/bin/gh pr review 1 --approve
+2	bash -c "gh api user"
+2	'gh' api user
+2	"gh" api user
+2	g\h api user
+2	$(printf gh) api user
+2	python3 -c "import subprocess;subprocess.run(['gh','api','user'])"
+2	env -u GH_CONF""IG_DIR /opt/homebrew/bin/gh\ api user
+2	T=$(security find-generic-password -s gh:github.com -w); curl -H "Authorization: token $T" https://api.git""hub.com/user
+2	curl -X POST https://api.github.com/repos/o/r/pulls/1/reviews
+2	git --no-pager push origin HEAD
+2	git --git-dir=/x/.git push
+2	git -c alias.p=push p
+2	printf 'protocol=https\nhost=github.com\n' | git credential fill
+2	zsh /Users/jack/prwatch/bin/prwatch-post.sh --event approve
+2	/Users/jack/prwatch//bin/prwatch-post.sh --event approve
+2	cd /Users/jack/prwatch/bin && ./prwatch-post.sh --event approve
+0	/Users/jack/prwatch/bin/prwatch-tick.sh --x
+0	/Users/jack/prwatch/bin/prwatch-post.sh --event approve --body /tmp/b
+0	zsh ./tmp/helper.sh
+2	hub pr review 1 --approve
+0	curl -X POST https://140.82.112.3/repos/o/r/pulls/1/reviews
+2	ssh git@github.com
+2	python3 -c "import urllib.request;urllib.request.urlopen('https://api.github.com')"
+0	git fetch origin
+2	git remote add x https://x@github.com/o/r; git -c push.default=x push
+0	dotnet test --no-restore
+0	rg -n github src/client.ts
+0	/Users/jack/prwatch/bin/prwatch-post.sh --repo Vision --pr 1 --sha aaaa --event approve --body-sha bbbb
+2	env PRWATCH_TESTMODE=1 /Users/jack/prwatch/bin/prwatch-post.sh --repo Vision --pr 1 --sha a --event approve
+2	/Users/jack/prwatch/bin/prwatch-tick.sh; curl x
+2	/Users/jack/prwatch/bin/prwatch-notify.sh test x && gh api user
+0	chmod +x /tmp/h.sh
+0	/Users/jack/prwatch/bin/prwatch-post.sh --body-file=/tmp/x

@@ -1,0 +1,233 @@
+{
+  "model": "opus[1m]",
+  "askUserQuestionTimeout": "10m",
+  "env": {
+    "PRWATCH_HOME": "/Users/jack/prwatch",
+    "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+    "DOTNET_NOLOGO": "1",
+    "DOTNET_CLI_HOME": "/Users/jack/prwatch/cache/dotnet-home",
+    "NUGET_PACKAGES": "/Users/jack/prwatch/cache/nuget",
+    "DOTNET_SKIP_FIRST_TIME_EXPERIENCE": "1",
+    "NUGET_HTTP_CACHE_PATH": "/Users/jack/prwatch/cache/nuget-http",
+    "NUGET_PLUGINS_CACHE_PATH": "/Users/jack/prwatch/cache/nuget-plugins",
+    "MSBUILDDISABLENODEREUSE": "1",
+    "DOTNET_CLI_USE_MSBUILD_SERVER": "0",
+    "npm_config_cache": "/Users/jack/prwatch/cache/npm",
+    "CHROME_BIN": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "permissions": {
+    "defaultMode": "auto",
+    "disableBypassPermissionsMode": "disable",
+    "allow": [
+      "Bash(/Users/jack/prwatch/bin/prwatch-tick.sh *)",
+      "Bash(/Users/jack/prwatch/bin/prwatch-prep.sh *)",
+      "Bash(/Users/jack/prwatch/bin/prwatch-state.sh *)",
+      "Bash(/Users/jack/prwatch/bin/prwatch-notify.sh *)",
+      "Bash(/Users/jack/prwatch/bin/prwatch-cleanup.sh *)",
+      "Read(//Users/jack/prwatch/**)",
+      "Read(//Users/jack/Documents/vision-reviews/**)",
+      "Write(//Users/jack/Documents/vision-reviews/**)",
+      "Edit(//Users/jack/Documents/vision-reviews/**)",
+      "CronCreate",
+      "CronList",
+      "CronDelete",
+      "AskUserQuestion",
+      "Skill(prwatch-start)",
+      "Skill(prwatch-tick)",
+      "Skill(prwatch-review *)",
+      "Skill(prwatch-decide *)",
+      "Skill(prwatch-eod)"
+    ],
+    "ask": [
+      "Bash(/Users/jack/prwatch/bin/prwatch-post.sh *)",
+      "Bash(/Users/jack/prwatch/bin/prwatch-buildrun.sh *)",
+      "Bash(*prwatch-post*)",
+      "Bash(*prwatch-buildrun*)"
+    ],
+    "deny": [
+      "Bash(gh *)",
+      "Bash(/opt/homebrew/bin/gh *)",
+      "Bash(git push *)",
+      "Bash(git -C * push *)",
+      "Bash(security *)",
+      "Bash(osascript *)",
+      "Bash(sandbox-exec *)",
+      "mcp__*",
+      "WebFetch",
+      "WebSearch",
+      "RemoteTrigger",
+      "Agent(isolation:remote)",
+      "Edit(//Users/jack/prwatch/bin/**)",
+      "Write(//Users/jack/prwatch/bin/**)",
+      "Edit(//Users/jack/prwatch/config/**)",
+      "Write(//Users/jack/prwatch/config/**)",
+      "Edit(//Users/jack/prwatch/.claude/**)",
+      "Write(//Users/jack/prwatch/.claude/**)",
+      "Edit(//Users/jack/prwatch/angles/**)",
+      "Write(//Users/jack/prwatch/angles/**)",
+      "Edit(//Users/jack/prwatch/CLAUDE.md)",
+      "Write(//Users/jack/prwatch/CLAUDE.md)",
+      "Edit(//Users/jack/prwatch/state/**)",
+      "Write(//Users/jack/prwatch/state/**)",
+      "Read(~/.ssh/**)",
+      "Read(~/.config/gh/**)",
+      "Read(~/.netrc)",
+      "Read(~/Library/Keychains/**)",
+      "Edit(//Users/jack/prwatch/repos/**)",
+      "Write(//Users/jack/prwatch/repos/**)",
+      "Edit(~/.zshrc)",
+      "Write(~/.zshrc)",
+      "Edit(~/.zprofile)",
+      "Write(~/.zprofile)",
+      "Edit(~/.gitconfig)",
+      "Write(~/.gitconfig)",
+      "Edit(~/Library/LaunchAgents/**)",
+      "Write(~/Library/LaunchAgents/**)",
+      "Edit(~/.claude/**)",
+      "Write(~/.claude/**)",
+      "Skill(code-review *)",
+      "Skill(code-review)",
+      "Skill(review)",
+      "Skill(review *)",
+      "Skill(security-review)",
+      "Skill(security-review *)",
+      "Skill(schedule)",
+      "Skill(schedule *)",
+      "Skill(loop)",
+      "Skill(loop *)",
+      "Read(~/.composer/**)",
+      "Read(~/Documents/GitHub/**)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "autoAllowBashIfSandboxed": true,
+    "excludedCommands": [
+      "/Users/jack/prwatch/bin/prwatch-tick.sh *",
+      "/Users/jack/prwatch/bin/prwatch-prep.sh *",
+      "/Users/jack/prwatch/bin/prwatch-state.sh *",
+      "/Users/jack/prwatch/bin/prwatch-notify.sh *",
+      "/Users/jack/prwatch/bin/prwatch-cleanup.sh *",
+      "/Users/jack/prwatch/bin/prwatch-post.sh *",
+      "/Users/jack/prwatch/bin/prwatch-buildrun.sh *"
+    ],
+    "network": {
+      "strictAllowlist": true,
+      "allowedDomains": [],
+      "allowLocalBinding": true
+    },
+    "filesystem": {
+      "denyWrite": [
+        "/Users/jack/prwatch/bin",
+        "/Users/jack/prwatch/config",
+        "/Users/jack/prwatch/.claude",
+        "/Users/jack/prwatch/angles",
+        "/Users/jack/prwatch/CLAUDE.md",
+        "/Users/jack/prwatch/state",
+        "/Users/jack/prwatch/repos"
+      ]
+    },
+    "credentials": {
+      "files": [
+        {
+          "path": "~/.ssh",
+          "mode": "deny"
+        },
+        {
+          "path": "~/.config/gh",
+          "mode": "deny"
+        },
+        {
+          "path": "~/.netrc",
+          "mode": "deny"
+        },
+        {
+          "path": "~/Library/Keychains",
+          "mode": "deny"
+        },
+        {
+          "path": "~/.composer",
+          "mode": "deny"
+        },
+        {
+          "path": "~/Documents/GitHub",
+          "mode": "deny"
+        }
+      ],
+      "envVars": [
+        {
+          "name": "GH_TOKEN",
+          "mode": "deny"
+        },
+        {
+          "name": "GITHUB_TOKEN",
+          "mode": "deny"
+        }
+      ]
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jack/prwatch/bin/prwatch-guard.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/touch /Users/jack/prwatch/state/activity"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/touch /Users/jack/prwatch/state/activity"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jack/prwatch/bin/prwatch-notify.sh stuck permission"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/touch /Users/jack/prwatch/state/activity"
+          }
+        ]
+      }
+    ]
+  },
+  "skillOverrides": {
+    "code-review": "off",
+    "review": "off",
+    "security-review": "off",
+    "schedule": "off",
+    "loop": "off"
+  }
+}
