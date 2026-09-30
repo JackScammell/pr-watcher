@@ -31,6 +31,7 @@ see `watcher/README.md`), unlock it first; `install.sh` refuses while it is lock
 | `watcher/BUILD-NOTES.md` | Deviations from the plan found while building, with evidence |
 | `docs/plan.md` | The council-approved plan (Revision 3.1) this was built from |
 | `docs/fix-background-agents.md` | The 2026-09-29 background-reviewer incident: cause, fix, safety net, verification |
+| `docs/cap-override.md` | `cap N`: raising the daily review cap for one day, and how the scripts enforce it |
 | `watcher/test/harness/` | `run.sh` (offline safety-net tests) and `live-check.sh` (real Claude Code check after updates) |
 
 The runtime files live under `watcher/` so the watcher's own `CLAUDE.md` and skills don't load when you open

@@ -1,16 +1,21 @@
 #!/bin/zsh
 # prwatch-state.sh — the only writer of state.json.
-#   set <key> <status> [k=v ...] | freeze <key> | get <key> | pause <min> | stop-today | go-ahead <key> <sha40> | daily-inc
+#   set <key> <status> [k=v ...] | freeze <key> | get <key> | pause <min> | stop-today | go-ahead <key> <sha40>
+#   | daily-inc (prep: take one of today's council slots; 65 = cap used up) | cap <1-12> (prompthook only: Jack's "cap N")
 #   | miss <key> <n>   (withdrawn-pass counter; changes nothing else, no event, no notification)
 #   | harness-abort <key>   (reviewers ran in the background: requeue, refund today's slot, stop today; needs agenthook markers)
 # Values must match [A-Za-z0-9._/:@#+-]* — e.g. recommendation=request-changes (not "REQUEST CHANGES").
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/usr/bin:/bin LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob
-PRW=$HOME/prwatch; S=$PRW/state
-[[ -n ${PRWATCH_TESTMODE:-} ]] && S=${PRWATCH_STATE_DIR:-$PRW/test/state}
+PRW=$HOME/prwatch; S=$PRW/state; td=$(date +%F)
+CAP_DEFAULT=6 CAP_MAX=12            # councils a day; CAP_DEFAULT must match prwatch-tick.sh (the harness checks)
+if [[ -n ${PRWATCH_TESTMODE:-} ]]; then S=${PRWATCH_STATE_DIR:-$PRW/test/state}; [[ -n ${PRWATCH_NOW:-} ]] && td=${PRWATCH_NOW[1,10]}; fi
 mkdir -p $S; F=$S/state.json; [[ -f $F ]] || print '{"prs":{},"daily":{},"go_ahead":{}}' > $F
 [[ "$(jq -r .session_id $S/session.lock 2>/dev/null)" == "${PRWATCH_SESSION_ID:-x}" ]] || { print superseded; exit 5; }
+# one writer at a time (the cap check is read-then-write); fcntl lock, released when this process exits
+zmodload zsh/system; : >> $S/state.lock
+[[ ${1:-} == get ]] || zsystem flock -t 10 $S/state.lock 2>/dev/null || { print "state busy"; exit 75; }
 STATUSES='(queued|reviewing|ready|asking|awaiting_decision|posted|skipped|failed|draft_seen|closed|withdrawn|go_ahead_pending|go_ahead_declined)'
 okkey() { [[ $1 == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## ]] || { print "bad key"; exit 64; } }
 write() { jq "$@" $F > $F.tmp && mv $F.tmp $F; }
@@ -36,7 +41,20 @@ case ${1:-} in
   pause) [[ ${2:-} == [0-9]## ]] || exit 64; write --arg u "$(date -v+${2}M -Iseconds)" '.paused_until=$u' ;;
   stop-today) touch $S/stopped-$(date +%F) ;;
   go-ahead) okkey ${2:-}; [[ ${3:-} == [0-9a-f](#c40) ]] || exit 64; write --arg k $2 --arg s $3 '.go_ahead[$k]=$s' ;;
-  daily-inc) write --arg d $(date +%F) '.daily[$d] = ((.daily[$d] // 0) + 1)' ;;
+  daily-inc) used=$(jq --arg d $td '.daily[$d] // 0' $F); cap=$(jq --arg d $td --argjson c $CAP_DEFAULT '.cap_override[$d] // $c' $F)
+       (( used < cap )) || { print "daily cap reached ($used of $cap today)"; exit 65; }
+       write --arg d $td '.daily[$d] = ((.daily[$d] // 0) + 1)' ;;
+  cap) [[ ${2:-} == [1-9][0-9]# ]] && (( $2 <= CAP_MAX )) || { print "the cap must be 1 to $CAP_MAX"; exit 64; }
+       # only Jack's typed prompt authorises this: prwatch-prompthook.sh writes the request moments before calling us,
+       # and the model can't write state/ (sandbox denyWrite + permission deny). Single use, 60 s.
+       R=$S/cap/request.json
+       [[ "$(jq -r '"\(.session) \(.n)"' $R 2>/dev/null)" == "$PRWATCH_SESSION_ID $2" ]] && (( $(date +%s) - $(stat -f %m $R) <= 60 )) \
+         || { print "only Jack can change the cap, by typing cap N"; exit 64; }
+       rm -f $R
+       write --arg d $td --argjson n $2 '.cap_override[$d] = $n'
+       print -r -- "{\"t\":\"$now\",\"cap\":$2,\"day\":\"$td\"}" >> $S/events.jsonl
+       $PRW/bin/prwatch-notify.sh cap $2
+       jq -c --arg d $td --argjson c $CAP_DEFAULT '{cap:.cap_override[$d], cap_default:$c, used:(.daily[$d] // 0)}' $F ;;
   miss) okkey ${2:-}; [[ ${3:-} == [0-9]## ]] || exit 64; write --arg k $2 --argjson m $3 'if .prs[$k] then .prs[$k].miss=$m else . end' ;;
   harness-abort) okkey ${2:-}; key=$2; H=$S/harness; setopt nullglob   # authorised only by prwatch-agenthook.sh markers
        [[ "$(jq -r --arg k $key '.prs[$k].status // ""' $F)" == reviewing ]] || { print "not reviewing"; exit 64; }
@@ -59,7 +77,7 @@ case ${1:-} in
        done
        $PRW/bin/prwatch-cleanup.sh $key
        mkdir -p $H/done; mv $mine $H/done/
-       write --arg k $key --arg t $now --arg d $(date +%F) \
+       write --arg k $key --arg t $now --arg d $td \
          '.prs[$k] = (.prs[$k] | .status="queued" | .updated_at=$t | del(.step)) | .daily[$d] = ([((.daily[$d] // 0) - 1), 0] | max)'
        touch $S/stopped-$(date +%F)
        print -r -- "{\"t\":\"$now\",\"key\":\"$key\",\"status\":\"queued\",\"harness_abort\":true}" >> $S/events.jsonl ;;

@@ -64,7 +64,8 @@ touch "$PRW/state/activity"
 
 (( $(date +%u) >= 6 )) && print "Note: it's the weekend — the watcher only checks Monday to Friday."
 print "While a review runs (up to ~45 min) this window is busy; what you type waits. Esc stops that review (it resumes at the next check)."
-print "Type 'stop' to finish for the day, 'pause 60' to skip checks for an hour, 'd' to be asked about waiting drafts now."
+print "Type 'stop' to finish for the day, 'pause 60' to skip checks for an hour, 'd' to be asked about waiting drafts now,"
+print "'cap 8' to allow up to 8 reviews today (normally 6, at most 12)."
 print "At permission prompts choose 'Yes' — never 'Yes, and don't ask again'."
 
 cd "$PRW" || say_err "Missing $PRW"

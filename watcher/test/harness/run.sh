@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Background-agent backstop tests (test mode, stub osascript). Run: ~/prwatch/test/harness/run.sh
 # Covers prwatch-agenthook.sh (post/pre), prwatch-state.sh harness-abort, cleanup --sweep marker pruning, notify
-# templates, guard, settings, launcher, skill wording and repo↔install sync. Runs the INSTALLED scripts.
+# templates, guard, settings, launcher, skill wording, the daily cap (prompt hook, cap, daily-inc, prep, tick, cron gate)
+# and repo↔install sync. Runs the INSTALLED scripts.
 #   PRWATCH_LAUNCHER=<repo>/launcher/PR\ Watcher.command  (default: the Desktop copy)
 #   PRWATCH_REPO=<repo>/watcher                           (for the sync check; skipped visibly if missing)
 emulate -L zsh; set -u; setopt nullglob
@@ -197,7 +198,7 @@ ok "launcher exports var before claude"    '[[ -n $e && -n $c ]] && (( e < c ))'
 # --- sandboxed tests (docs/fix-sandbox-tests.md)
 AN=$PRW/angles/testing-build.md
 ok "settings: .NET uses IPv4 in the sandbox" '[[ "$(jq -r .env.DOTNET_SYSTEM_NET_DISABLEIPV6 $C)" == 1 ]]'
-for sc in prep buildrun post tick state notify cleanup; do
+for sc in prep buildrun post tick state notify cleanup prompthook; do
 ok "$sc re-execs with env -i (settings env can't leak in)" "head -8 $B/prwatch-$sc.sh | grep -q 'exec /usr/bin/env -i'"; done
 ok "dotnettest: runs with --diag, quotes testhost exception" 'grep -q -- "--diag:\$T/diag/log.txt" $B/prwatch-dotnettest.sh && grep -q "log.host" $B/prwatch-dotnettest.sh && grep -q "each test project separately" $AN'
 ok "angle: 'ran' defined, no APPROVE without" 'grep -q "What counts as \"ran\"" $AN && grep -q "no test ran, your verdict can.t be .APPROVE" $AN && grep -q "TESTS-RAN:" $AN'
@@ -312,6 +313,100 @@ ok "review skill: failure excludes fault"  'grep -q "except a harness fault" $S7
 ok "tick skill: stop after harness fault"  'grep -q "harness fault" $S7/prwatch-tick/SKILL.md'
 ok "hand-back named in start/review/CLAUDE" 'grep -q "Subagent hand-back" $S7/prwatch-start/SKILL.md && grep -q "Subagent hand-back" $S7/prwatch-review/SKILL.md && grep -q "Subagent hand-back" $PRW/CLAUDE.md'
 ok "hand-back never a decision (inv. 1 + decide)" 'grep -q "hand-back" <(sed -n "/^1\. \*\*Posting/p" $PRW/CLAUDE.md) && grep -q "hand-back" $S7/prwatch-decide/SKILL.md'
+
+# --- daily cap (docs/cap-override.md): Jack's "cap N" via the prompt hook only; prep's daily-inc enforces it; tick reports it
+PH=$B/prwatch-prompthook.sh; WD=2026-09-29                                  # WD: a weekday, for tick's window
+ph()   { jq -nc --arg p "$1" '{hook_event_name:"UserPromptSubmit",session_id:"cc-1",prompt:$p}' | $PH prompt 2>&1; }
+ovr()  { jq -r ".cap_override[\"${1:-$today}\"] // \"none\"" $T/state.json; }
+used() { jq -r ".daily[\"${1:-$today}\"] // 0" $T/state.json; }
+req()  { mkdir -p $T/cap; jq -nc --arg s ${2:-sid-A} --arg n $1 '{session:$s,n:$n}' > $T/cap/request.json; }   # what the hook writes
+setcap() { $SS cap $1 >/dev/null 2>&1; }
+reset; out=$(ph "cap 8")
+ok "prompthook: cap 8 → today's cap 8"      '[[ $(ovr) == 8 ]]'
+ok "prompthook: tells the model the result" '[[ $out == "PRWATCH CAP: up to 8 reviews may start today (normally 6); 0 started so far."* ]]'
+ok "prompthook: request used up"            '[[ ! -e $T/cap/request.json ]]'
+ok "cap: Jack notified, event logged"       'grep -q " cap 8 :: Up to 8 reviews may start today. If you didn.t type cap 8" $T/notify.log && grep -q "\"cap\":8" $T/events.jsonl'
+reset; ph $'  CAP   9\n' >/dev/null
+ok "prompthook: trimmed, any case"          '[[ $(ovr) == 9 ]]'
+reset
+for pr in "cap 8 please" "please cap 8" "cap" "cap eight" $'cap 8\nrm -rf x' "cap ８" "cap -1" "cap 8; ls" "cap 1234" "d"; do
+ok "prompthook: ignores '${pr//$'\n'/<NL>}'" '[[ -z $(ph "$pr") && $(ovr) == none && ! -e $T/cap/request.json ]]'; done
+for v in 0 13 08 99; do
+ok "prompthook: cap $v refused, Jack told"  '[[ $(ph "cap $v") == "PRWATCH CAP: not changed (the cap must be 1 to 12)."* && $(ovr) == none ]]'; done
+ok "prompthook: never blocks a prompt"      '(ph "cap 99" >/dev/null; (( $? == 0 ))) && (print "not json" | $PH prompt >/dev/null; (( $? == 0 )))'
+ok "cap: no request from the hook → refused (the model can't raise it)" '(setcap 12; (( $? == 64 ))) && [[ $(ovr) == none ]]'
+req 8 sid-B
+ok "cap: request from another session → refused" '(setcap 8; (( $? == 64 ))) && [[ $(ovr) == none ]]'
+req 8
+ok "cap: caller from another session → 5"   '(PRWATCH_SESSION_ID=sid-B $SS cap 8 >/dev/null; (( $? == 5 ))) && [[ $(ovr) == none ]]'
+ok "cap: request says 8, call says 12 → refused" '! setcap 12 && [[ $(ovr) == none ]]'
+touch -t $(date -v-2M +%Y%m%d%H%M) $T/cap/request.json
+ok "cap: request older than 60 s → refused" '! setcap 8 && [[ $(ovr) == none ]]'
+req 8
+ok "cap: request single use"                'setcap 8 && [[ ! -e $T/cap/request.json ]] && ! setcap 8'
+req 13
+ok "cap: above 12 refused even with a request" '(setcap 13; (( $? == 64 ))) && [[ $(ovr) == 8 ]]'
+ok "cap: bad argument → 64"                 '($SS cap "8; rm" >/dev/null; (( $? == 64 ))) && ($SS cap x >/dev/null; (( $? == 64 )))'
+req 3
+ok "cap: lowering allowed"                  'setcap 3 && [[ $(ovr) == 3 ]]'
+reset; for i in {1..6}; do $SS daily-inc >/dev/null; done; c=$($SS daily-inc); rc=$?
+ok "daily-inc: 7th refused at the default 6 (65)" '(( rc == 65 )) && [[ $(used) == 6 && $c == "daily cap reached (6 of 6 today)" ]]'
+ph "cap 8" >/dev/null; $SS daily-inc >/dev/null; rc=$?
+ok "daily-inc: allowed again after cap 8"   '(( rc == 0 )) && [[ $(used) == 7 ]]'
+$SS daily-inc >/dev/null; $SS daily-inc >/dev/null; rc=$?
+ok "daily-inc: refused at 8 of 8"           '(( rc == 65 )) && [[ $(used) == 8 ]]'
+reset; jq --arg d $today '.cap_override["2000-01-01"]=12 | .daily[$d]=6' $T/state.json > $T/s && mv $T/s $T/state.json
+ok "daily-inc: another day's cap ignored"   '! $SS daily-inc >/dev/null && [[ $(used) == 6 ]]'
+reset; for i in {1..10}; do $SS daily-inc >/dev/null 2>&1 & done; wait
+ok "daily-inc: 10 at once → exactly 6 (locked)" '[[ $(used) == 6 ]]'
+reset; ph "cap 8" >/dev/null; review; post agent-async.json; post taskstop-ok.json; abort ACT-Training/Vision#1
+ok "harness-abort refund keeps today's cap" '[[ $(used) == 0 && $(ovr) == 8 ]]'
+reset; review; post agent-async.json
+ok "live marker: state.sh cap denied"       'denied Bash "$SS cap 8"'
+# prep takes the slot before doing anything (no archive, no network); a failing clone source keeps the rest local
+reset; jq --arg d $today '.daily[$d]=6' $T/state.json > $T/s && mv $T/s $T/state.json
+pp() { PRWATCH_ARCHIVE_DIR=$T/archive PRWATCH_GIT_BASE=$T/nogit $B/prwatch-prep.sh Zzzt 9 0123456789abcdef0123456789abcdef01234567 1 2>&1; }
+out=$(pp); rc=$?
+ok "prep: cap used up → 24, nothing done"   '(( rc == 24 )) && [[ $out == "daily cap reached (6 of 6 today)" && ! -e $T/archive ]] && [[ $(used) == 6 ]]'
+reset; out=$(pp); rc=$?
+ok "prep: counts the review first"          '(( rc == 20 )) && [[ $(used) == 1 ]]'
+reset; out=$(PRWATCH_SESSION_ID=sid-B pp); rc=$?
+ok "prep: other session → 25, not counted"  '(( rc == 25 )) && [[ $(used) == 0 && ! -e $T/archive ]]'
+reset; out=$(PRWATCH_SESSION_ID= pp); rc=$?
+ok "prep: test mode, no session (T2) → not counted" '(( rc == 20 )) && [[ $(used) == 0 ]]'
+# tick reports the cap (dry run, stub gh, fixed weekday)
+tk() { mkdir -p $T/stub; ln -sf $PRW/test/stub/osascript $T/stub/osascript
+  cat > $T/stub/gh <<'EOF'
+#!/bin/zsh
+[[ "$1 $2" == "pr view" ]] && print '{"headRefOid":"abc","isDraft":false,"state":"OPEN","title":"t","author":{"login":"x"},"files":[]}'
+exit 0
+EOF
+  chmod +x $T/stub/gh
+  PRWATCH_STUB_BIN=$T/stub PRWATCH_ONLY_PR=ACT-Training/Zzzt#9 PRWATCH_NOW=${WD}T10:00 $B/prwatch-tick.sh --dry-run | jq -c '[.cap,.cap_default,.councils_today,.cap_left]'; }
+reset
+ok "tick: default cap 6"                    '[[ $(tk) == "[6,6,0,6]" ]]'
+jq --arg d $WD '.cap_override[$d]=8 | .daily[$d]=3 | .cap_override["2026-09-28"]=12' $T/state.json > $T/s && mv $T/s $T/state.json
+ok "tick: today's cap 8, 3 used, 5 left"    '[[ $(tk) == "[8,6,3,5]" ]]'
+jq --arg d $WD '.cap_override[$d]=3 | .daily[$d]=5' $T/state.json > $T/s && mv $T/s $T/state.json
+ok "tick: nothing left never below 0"       '[[ $(tk) == "[3,6,5,0]" ]]'
+reset; PRWATCH_NOW=${WD}T10:00 ph "cap 10" >/dev/null
+ok "tick: reads the cap the hook set (same day in test mode)" '[[ $(ovr $WD) == 10 && $(tk) == "[10,6,0,10]" ]]'
+# CronCreate gate: a scheduled prompt could look like Jack's typing, so only the two real jobs may exist
+cj() { jq -nc --arg c "$1" --arg p "$2" --argjson r ${3:-null} '{tool_name:"CronCreate",tool_input:({cron:$c,prompt:$p}+(if $r==null then {} else {recurring:$r} end))}' | $PH cron 2>/dev/null; print $?; }
+ok "cron gate: tick job allowed"            '[[ $(cj "*/15 8-15 * * 1-5" /prwatch-tick) == 0 && $(cj "*/15 8-15 * * 1-5" /prwatch-tick true) == 0 ]]'
+ok "cron gate: eod job allowed"             '[[ $(cj "3 16 * * 1-5" /prwatch-eod) == 0 ]]'
+ok "cron gate: 'cap 12' denied"             '[[ $(cj "*/15 8-15 * * 1-5" "cap 12") == 2 ]]'
+ok "cron gate: tick plus extra text denied" '[[ $(cj "*/15 8-15 * * 1-5" "/prwatch-tick then cap 12") == 2 ]]'
+ok "cron gate: one-shot / other time denied" '[[ $(cj "*/15 8-15 * * 1-5" /prwatch-tick false) == 2 && $(cj "* * * * *" /prwatch-tick) == 2 ]]'
+ok "cron gate: garbage → denied"            '[[ $(print "not json" | $PH cron 2>/dev/null; print $?) == 2 ]]'
+ok "settings: UserPromptSubmit → prompthook" 'jq -e ".hooks.UserPromptSubmit[0].hooks|map(.command)|index(\"$PH prompt\")" $C >/dev/null'
+ok "settings: CronCreate gate hook"         'jq -e ".hooks.PreToolUse[]|select(.matcher==\"CronCreate\")|.hooks[0].command == \"$PH cron\"" $C >/dev/null'
+ok "guard: model cannot run prompthook"     '[[ $(g "$PH prompt") == 2 && $(g "echo cap 12 | $PH prompt") == 2 ]]'
+ok "tick and state agree on the default"    '[[ $(grep -o "CAP_DEFAULT=[0-9]*" $B/prwatch-tick.sh) == $(grep -o "CAP_DEFAULT=[0-9]*" $B/prwatch-state.sh) ]]'
+ok "tick skill: cap from the JSON, no '6'"  '! grep -q "(6)\|cap of 6" $S7/prwatch-tick/SKILL.md && grep -q "Daily cap of <cap>" $S7/prwatch-tick/SKILL.md && grep -q "exit 24" $S7/prwatch-tick/SKILL.md'
+ok "review skill: prep counts, exit 24 requeues" '! grep -q "daily-inc" $S7/prwatch-review/SKILL.md && grep -q "Exit 24" $S7/prwatch-review/SKILL.md'
+ok "CLAUDE.md: cap N row, never run cap yourself" 'grep -q "^| .cap N. |" $PRW/CLAUDE.md && grep -q "Never run .prwatch-state.sh cap. yourself" $PRW/CLAUDE.md'
+ok "start skill: only the two jobs"         'grep -q "A hook allows only these two jobs" $S7/prwatch-start/SKILL.md'
 
 # --- installed copy must match the repo (tests run the installed scripts)
 REPO=${PRWATCH_REPO:-/Users/jack/Herd/Shuffle/pr-watcher/watcher}

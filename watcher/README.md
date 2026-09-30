@@ -17,6 +17,7 @@ The PR Watcher keeps an eye on GitHub for pull requests where someone has asked 
 | `d` | Ask me about waiting drafts now |
 | `status` | One line per PR being tracked |
 | `pause 60` | Skip checks for 60 minutes (any number of minutes) |
+| `cap 8` | Allow up to 8 reviews today instead of 6 (1 to 12; back to 6 tomorrow). Type it on its own. You get a quiet notification when it changes |
 | `stop` | Finish for the day. Then type `/exit` to close the window |
 
 **At every permission prompt choose "Yes". Never choose "Yes, and don't ask again".**
@@ -108,6 +109,7 @@ export PRWATCH_TESTMODE=1 PRWATCH_STATE_DIR=~/prwatch/test/state PRWATCH_ARCHIVE
 | T13 | Stopped early | First `rm -f ~/prwatch/test/state/stopped-* ~/prwatch/test/state/notify-throttle/error-session*`, then launch in test mode and type `/exit` around 13:00. | "Stopped before 16:00" notification; no more watchdog notifications. |
 | T14 | Two PRs | As T6 but `PRWATCH_ONLY_PR='ACT-Training/Vision#1803,ACT-Training/Vision#1792'`. | PR A's notification arrives when A's question is on screen, before B's review starts. |
 | T15 | Sandboxed tests (before the first live day) | After T2, run T6 and let the testing-build reviewer run. Then at the question type `run tests`. | `dotnet test` runs in the sandbox under both time zones; ng test runs or is recorded as could-not-run; `run tests` shows the "run outside the sandbox?" dialog. **If the sandboxed dotnet test can't run, tell the builder: automatic tests switch to "only when you type run tests".** |
+| T17 | Cap for today (after installing the cap change) | Launch in test mode and type `cap 8`. Then type `cap 13`, then `status`. | `cap 8`: a `PRWATCH CAP: up to 8 reviews may start today (normally 6)…` reply and a quiet "Review limit" notification. `cap 13`: "not changed". `status` ends `Reviews today: 0 of 8`. `~/prwatch/test/state/state.json` has `cap_override` for today. |
 | T16 | Title injection (builder ran the stub version) | Run the **T16 commands** below the table. | The notification shows the cleaned title as plain text; nothing runs. |
 | T-CGEvent | Synthetic clicks | See the plan (§10). Only at a throwaway dialog and a throwaway permission prompt, never the real post dialog. | Both attempts fail. |
 

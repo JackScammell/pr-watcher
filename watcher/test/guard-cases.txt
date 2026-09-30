@@ -33,3 +33,5 @@
 2	/Users/jack/prwatch/bin/prwatch-notify.sh test x && gh api user
 0	chmod +x /tmp/h.sh
 0	/Users/jack/prwatch/bin/prwatch-post.sh --body-file=/tmp/x
+2	/Users/jack/prwatch/bin/prwatch-prompthook.sh prompt
+2	echo cap 12 | /Users/jack/prwatch/bin/prwatch-prompthook.sh prompt

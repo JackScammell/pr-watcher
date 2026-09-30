@@ -4,7 +4,8 @@
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/opt/homebrew/bin:/usr/bin:/bin LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob
-PRW=$HOME/prwatch; S=$PRW/state; NOW=""; ONLY=""; DRY=0; WONLY=0; CAP=6
+PRW=$HOME/prwatch; S=$PRW/state; NOW=""; ONLY=""; DRY=0; WONLY=0
+CAP_DEFAULT=6          # councils a day unless Jack typed "cap N" today; must match prwatch-state.sh (the harness checks)
 if [[ -n ${PRWATCH_TESTMODE:-} ]]; then
   S=${PRWATCH_STATE_DIR:-$PRW/test/state}; NOW=${PRWATCH_NOW:-}; ONLY=${PRWATCH_ONLY_PR:-}
   [[ -n ${PRWATCH_STUB_BIN:-} ]] && path=($PRWATCH_STUB_BIN $path)
@@ -89,7 +90,8 @@ if [[ -z $ONLY ]] && (( ! DRY )); then
     $ST set $k withdrawn withdrawn_from=$kst miss=0 >/dev/null; notices+=("\"$k no longer requested (withdrawn, merged or closed)\"")
   done
 fi
-cap=$(jq -r --arg d $today '.daily[$d] // 0' $F)
+used=$(jq -r --arg d $today '.daily[$d] // 0' $F)
+cap=$(jq -r --arg d $today --argjson c $CAP_DEFAULT '.cap_override[$d] // $c' $F)   # "cap N" (prwatch-prompthook.sh); prep enforces it
 cs=$( (( 10#$hm < 1530 )) && print true || print false )      # may a NEW council start now? (last start 15:29)
-jq -nc --argjson i "[${(j:,:)items}]" --argjson c $cap --argjson cap $CAP --arg hm $hm --argjson no "[${(j:,:)notices}]" --argjson cs $cs \
-  '{status:"ok",hm:$hm,can_start:$cs,councils_today:$c,cap:$cap,items:$i,notices:$no}'
+jq -nc --argjson i "[${(j:,:)items}]" --argjson c $used --argjson cap $cap --argjson cd $CAP_DEFAULT --arg hm $hm --argjson no "[${(j:,:)notices}]" --argjson cs $cs \
+  '{status:"ok",hm:$hm,can_start:$cs,councils_today:$c,cap:$cap,cap_default:$cd,cap_left:([$cap-$c,0]|max),items:$i,notices:$no}'

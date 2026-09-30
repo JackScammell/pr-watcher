@@ -24,6 +24,7 @@ If any of 1, 4, 6 or 7 fails, tell Jack and do not schedule anything.
 1. `CronList`. Delete any existing `/prwatch-tick` or `/prwatch-eod` jobs (avoid duplicates).
 2. `CronCreate` recurring `*/15 8-15 * * 1-5` with prompt `/prwatch-tick`.
 3. `CronCreate` recurring `3 16 * * 1-5` with prompt `/prwatch-eod`.
+A hook allows only these two jobs, exactly as written (recurring). If either `CronCreate` is refused, say `PROBLEM: could not schedule the checks (<hook message>)` and stop.
 
 ## 3. Housekeeping and first tick
 1. `/Users/jack/prwatch/bin/prwatch-cleanup.sh --sweep`
@@ -32,5 +33,5 @@ If any of 1, 4, 6 or 7 fails, tell Jack and do not schedule anything.
 ## 4. Banner
 Print:
 - "Checking every 15 min, Mon–Fri. New reviews start 08:00–15:30; decisions until 16:00."
-- "Commands: `d` (drafts now), `status`, `pause 60`, `stop`. Esc stops a running review (it resumes at the next check)."
+- "Commands: `d` (drafts now), `status`, `pause 60`, `cap 8` (allow up to 8 reviews today; default 6, max 12), `stop`. Esc stops a running review (it resumes at the next check)."
 - "At permission prompts choose Yes — never 'Yes, and don't ask again'."

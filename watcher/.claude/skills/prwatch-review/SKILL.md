@@ -13,11 +13,10 @@ Scripts are called only as `/Users/jack/prwatch/bin/prwatch-<name>.sh <plain arg
 1. Read `/Users/jack/prwatch/state/state.json` (Read tool) for this key: `sha` (from the tick), `attempts`, `round`, `last_reviewed_sha`, `status` history.
 2. **Round** `k`: if the entry has `round` and `last_reviewed_sha` is set and differs from `sha` → `round + 1`; if it has `round` and this is a retry/requeue of the same commit → the same `round`; otherwise `1`. (Corrected after prep, step 2.4.)
 3. `/Users/jack/prwatch/bin/prwatch-state.sh set <key> reviewing sha=<sha> step=prep round=<k>`
-4. `/Users/jack/prwatch/bin/prwatch-state.sh daily-inc`
 
 ## 2. Prep
-1. Run `/Users/jack/prwatch/bin/prwatch-prep.sh <repo> <n> <sha> <k>` with Bash **`timeout: 2400000`**. The last line printed is the archive dir `A`.
-2. Non-zero exit: exit 23 (head moved) → `set <key> queued` and stop (the next tick picks up the new commit). Anything else → `set <key> failed attempts=<attempts+1>` and stop; print one line.
+1. Run `/Users/jack/prwatch/bin/prwatch-prep.sh <repo> <n> <sha> <k>` with Bash **`timeout: 2400000`**. The last line printed is the archive dir `A`. Prep also counts this review against today's cap (you never count it yourself).
+2. Non-zero exit: exit 23 (head moved) → `set <key> queued` and stop (the next tick picks up the new commit). Exit 24 (today's cap is used up; prep did nothing) → `set <key> queued sha=<sha>` and return — not a failure, no attempt charged, `/prwatch-tick` starts no more councils this turn. Anything else → `set <key> failed attempts=<attempts+1>` and stop; print one line.
 3. `/Users/jack/prwatch/bin/prwatch-state.sh set <key> reviewing sha=<sha> step=council round=<k> archive=<A>`
 4. **Check the round** against `A/input/reviews.json`: count Jack's (`JackScammell`) reviews that are `CHANGES_REQUESTED` or `APPROVED`, or `COMMENTED` with a non-empty body; if any body starts with `<!-- prwatch round=j`, prefer `j`. The round is that count + 1; if the two methods disagree take the lower. Use this `k` in the draft marker and `meta.json` (the archive folder name can stay).
 5. Read `A/input/profile.json`, `A/input/base-merge.txt` (`behind_base`, `base`, `base_sha`, `dotnet_solutions`) and `A/input/prebuild.log`.

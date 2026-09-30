@@ -1,5 +1,6 @@
 #!/bin/zsh
 # prwatch-prep.sh <repo> <N> <sha40> <round>  → prints the archive dir. Unsandboxed (excludedCommands); ALL network is here.
+# Takes one of today's council slots first: exit 24 = today's cap is used up (nothing else done).
 # Call with Bash timeout 2400000 (first clone + restore can take many minutes).
 NODE_BIN=( "$HOME/Library/Application Support/Herd/config/nvm/versions/node/"*/bin(N-/nOn) ); NODE_BIN=${NODE_BIN[1]:-}
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH="/opt/homebrew/bin:/usr/local/share/dotnet:${NODE_BIN:+$NODE_BIN:}/usr/bin:/bin" \
@@ -14,6 +15,12 @@ beat() { touch $PRW/state/activity 2>/dev/null; }          # watchdog heartbeat 
 repo=${1:-}; n=${2:-}; sha=${3:-}; round=${4:-}
 [[ $repo == [A-Za-z0-9._-]## && $n == [0-9]## && $sha == [0-9a-f](#c40) && $round == [0-9]## ]] || { print "bad arguments"; exit 64; }
 R=ACT-Training/$repo
+# Today's council cap is enforced here, not by the model: every council needs prep. 65 = cap used up (default 6, or
+# Jack's "cap N"). Test mode from a plain Terminal (README T2) has no session and counts nothing.
+if [[ -z ${PRWATCH_TESTMODE:-} || -n ${PRWATCH_SESSION_ID:-} ]]; then
+  c=$($PRW/bin/prwatch-state.sh daily-inc)
+  case $? in 0) ;; 65) print -r -- "$c"; exit 24 ;; *) print -r -- "could not count this review: $c"; exit 25 ;; esac
+fi
 export GH_CONFIG_DIR=$HOME/.config/gh
 # git hardening: watcher-owned global config (gh credential helper only), no system config, no hooks, no fsmonitor
 export GIT_CONFIG_GLOBAL=$PRW/config/gitconfig GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0

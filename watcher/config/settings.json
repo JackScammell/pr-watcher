@@ -196,6 +196,15 @@
             "command": "/Users/jack/prwatch/bin/prwatch-agenthook.sh pre"
           }
         ]
+      },
+      {
+        "matcher": "CronCreate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jack/prwatch/bin/prwatch-prompthook.sh cron"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -224,6 +233,10 @@
           {
             "type": "command",
             "command": "/usr/bin/touch /Users/jack/prwatch/state/activity"
+          },
+          {
+            "type": "command",
+            "command": "/Users/jack/prwatch/bin/prwatch-prompthook.sh prompt"
           }
         ]
       }
