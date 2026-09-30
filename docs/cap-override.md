@@ -18,7 +18,7 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
 ## Decisions
 | Question | Ruling |
 |---|---|
-| One day or permanent? | One day only, stored as `cap_override[<date>]` in `state.json`. It lapses overnight, so nothing needs resetting. The numbers are defined once, as `CAP_DEFAULT` and `CAP_MAX` in `prwatch-state.sh`. The tick, skills, `CLAUDE.md` and the hook read them through `prwatch-state.sh today` or the tick JSON. To change the default, edit that line and also the prose Jack reads: the launcher banner, the start skill banner and `watcher/README.md`. The harness fails if the prose disagrees. Then run `install.sh`. There's no config file, so only one place defines a cap. |
+| One day or permanent? | One day only, stored as `cap_override[<date>]` in `state.json`. It lapses overnight, so nothing needs resetting. The numbers are defined once, as `CAP_DEFAULT` and `CAP_MAX` in `prwatch-state.sh`. The tick, skills, `CLAUDE.md` and the hook read them through `prwatch-state.sh today` or the tick JSON. To change the default, edit that line and also the prose Jack reads: the launcher banner, the start skill banner and `watcher/README.md` (each is marked). The harness fails if the prose disagrees. Harness fixtures derive the numbers from the constants. Then run `install.sh`. There's no config file, so only one place defines a cap. |
 | `cap N` or `more N`? | `cap N`, an absolute number: repeating it changes nothing, whereas a repeated `more 2` would keep adding. |
 | Ceiling | 12 (Jack, 2026-09-30). The start window is 08:00–15:29, and councils run 25–45 minutes one at a time. |
 | `cap 0` | No (Jack): use `stop`. |
@@ -45,7 +45,7 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
    - Only `/prwatch-tick` at `*/15 8-15 * * 1-5` and `/prwatch-eod` at `3 16 * * 1-5` (recurring) may be created,
      and `CronList` and `CronDelete` are allowed.
    - Anything else is denied (exit 2): `ScheduleWakeup`, `RemoteTrigger`, and a renamed or new scheduling tool that
-     matches the pattern. `ScheduleWakeup` and `RemoteTrigger` are also in `permissions.deny`, as is the `/loop`
+     matches the pattern. `ScheduleWakeup` and `RemoteTrigger` are also in `permissions.deny`, as are the `/loop`
      and `/schedule` skills.
 4. **Counting moved into prep.**
    - Before this change the model called `prwatch-state.sh daily-inc` itself (review step 1.4) and compared the
@@ -63,7 +63,8 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
    - `prwatch-state.sh` takes an exclusive `zsystem flock` on `state/state.lock` before any `state.json` write.
      `daily-inc` holds it across its check and increment.
    - It is released before slow side effects: notifications (osascript) after `set` and `cap`. `harness-abort`
-     kills PR processes and cleans up the worktrees first, and locks only for its final requeue and refund.
+     kills PR processes and cleans up the worktrees first, and locks only for its final requeue and refund. It
+     archives its fault markers after that write, so a busy lock (75) can simply be retried.
    - Without the lock, 10 parallel `daily-inc` calls left `state.json` **empty** (0 bytes) in 3 runs out of 3.
      With it, exactly 6 were counted and the file stayed valid.
    - A writer waits up to 10 seconds, then exits 75 ("state busy").
@@ -86,6 +87,7 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
 | 24 | prep | cap used up; nothing done | review: `queued`, no attempt; tick starts no more this turn |
 | 25 | prep | the count failed (5 or 70) | review: `failed`, attempt +1 (visible) |
 | 26 | prep | state busy; nothing done | review: `queued`, no attempt; tick starts no more this turn |
+| 20–22, 64 | prep | clone, base lookup or fetch failed; bad arguments | review: `failed`, attempt +1 (unchanged) |
 
 ## Checked
 - `.prompt` is the UserPromptSubmit input field, and plain stdout with exit 0 is added to the model's context
@@ -107,6 +109,13 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
   So it is left out deliberately.
 - `test/guard-cases.txt` and `test/sec/guard-cases.tsv` are identical copies. Both get the new cases.
 - `daily` and `cap_override` gain one small key a day. That is negligible for years.
+- Refused `cap` calls each add a `cap_refused` line to `events.jsonl`. They are not coalesced, because that line is
+  the audit trail for exactly the behaviour (the model trying to raise its own cap) that should stand out.
+- Prep's heartbeat stays in `~/prwatch/state/activity` in test mode, because the launcher's watchdog reads it there
+  during T6-style runs. Harness runs therefore refresh the live heartbeat. That is harmless: it only postpones a
+  "stuck" notification.
+- The scheduling gate matches tool names containing Cron, Schedule, Wakeup or Trigger. A future scheduling tool
+  with none of those words would need adding to the matcher (check the Claude Code release notes when updating).
 
 ## Tests
 `test/harness/run.sh`, "daily cap" section:

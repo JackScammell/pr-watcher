@@ -10,7 +10,7 @@
 emulate -L zsh; set -u; setopt extendedglob
 PRW=$HOME/prwatch; S=$PRW/state
 [[ -n ${PRWATCH_TESTMODE:-} ]] && S=${PRWATCH_STATE_DIR:-$PRW/test/state}
-p=$(cat) || p=""
+p=$(cat) || p=""                                   # not "|| exit 0" as in agenthook: sched must fail closed
 j() { print -r -- "$p" | /usr/bin/jq -r "$1" 2>/dev/null; }
 trim() { print -r -- ${${1##[[:space:]]#}%%[[:space:]]#}; }          # strip leading and trailing whitespace
 plain() { print -r -- ${${1//[^A-Za-z0-9 ().,-]/}[1,80]}; }          # safe for the model's context: no markup, 80 chars
@@ -33,13 +33,12 @@ case ${1:-} in
       print -r -- "PRWATCH CAP: not changed ($(plain "$out"))."
     fi
     exit 0 ;;
-  sched)
-    tool=$(j '.tool_name // ""')
-    [[ $tool == (CronList|CronDelete) ]] && exit 0
-    if [[ $tool == CronCreate ]]; then                      # recurring defaults to true when absent
-      c=$(j '"\(.tool_input.cron // "")|\(.tool_input.prompt // "")|\(.tool_input.recurring | if . == null then true else . end)"')
-      [[ $c == "*/15 8-15 * * 1-5|/prwatch-tick|true" || $c == "3 16 * * 1-5|/prwatch-eod|true" ]] && exit 0
-    fi
+  sched)                                                    # subshell: any error in it means "deny", never exit 1
+    ( tool=$(j '.tool_name // ""')
+      [[ $tool == (CronList|CronDelete) ]] && exit 0
+      [[ $tool == CronCreate ]] || exit 1
+      c=$(j '"\(.tool_input.cron // "")|\(.tool_input.prompt // "")|\(.tool_input.recurring | if . == null then true else . end)"')   # recurring: true when absent
+      [[ $c == "*/15 8-15 * * 1-5|/prwatch-tick|true" || $c == "3 16 * * 1-5|/prwatch-eod|true" ]] ) && exit 0
     print -u2 "prwatch: nothing may be scheduled except /prwatch-start's two jobs: CronCreate /prwatch-tick at */15 8-15 * * 1-5 and /prwatch-eod at 3 16 * * 1-5 (recurring)."
     exit 2 ;;
 esac

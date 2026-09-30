@@ -322,10 +322,11 @@ used() { jq -r ".daily[\"${1:-$today}\"] // 0" $T/state.json; }
 req()  { mkdir -p $T/cap; jq -nc --arg s ${2:-sid-A} --arg n $1 '{session:$s,n:$n}' > $T/cap/request.json; }   # what the hook writes
 setcap() { $SS cap $1 >/dev/null 2>&1; }                                    # → exit code
 sj()   { jq --arg d ${2:-$today} "$1" $T/state.json > $T/s && mv $T/s $T/state.json; }   # edit state; $d = the day
+CD=$(grep -o "CAP_DEFAULT=[0-9]*" $B/prwatch-state.sh); CD=${CD#*=}; CM=$(grep -o "CAP_MAX=[0-9]*" $B/prwatch-state.sh); CM=${CM#*=}   # the only definition
 hold() { : >> $T/state.lock; zsh -c "zmodload zsh/system; zsystem flock $T/state.lock; sleep $1" & pids+=($!); /bin/sleep 0.3; }   # someone else holds the lock
 reset; out=$(ph "cap 8")
 ok "prompthook: cap 8 → today's cap 8"      '[[ $(ovr) == 8 ]]'
-ok "prompthook: tells the model the result" '[[ $out == "PRWATCH CAP: up to 8 reviews may start today (normally 6); 0 started so far."* ]]'
+ok "prompthook: tells the model the result" '[[ $out == "PRWATCH CAP: up to 8 reviews may start today (normally $CD); 0 started so far."* ]]'
 ok "prompthook: request used up"            '[[ ! -e $T/cap/request.json ]]'
 ok "cap: Jack notified, event logged"       'grep -q " cap 8 :: Up to 8 reviews may start today" $T/notify.log && grep -q "\"cap\":8" $T/events.jsonl'
 ph "cap 8" >/dev/null
@@ -340,39 +341,39 @@ out=$(print '{"prompt":5}' | $PH prompt 2>&1); rc=$?
 ok "prompthook: non-string prompt ignored"  '(( rc == 0 )) && [[ -z $out && $(ovr) == none ]]'
 out=$(print 'not json' | $PH prompt 2>&1); rc=$?
 ok "prompthook: garbage stdin → exit 0, silent" '(( rc == 0 )) && [[ -z $out ]]'
-for v in 0 13 08 99; do
+for v in 0 $((CM+1)) 08 99; do
   out=$(ph "cap $v"); rc=$?
-  ok "prompthook: cap $v refused, Jack told"  '(( rc == 0 )) && [[ $out == "PRWATCH CAP: not changed (the cap must be 1 to 12)." && $(ovr) == none ]]'; done
+  ok "prompthook: cap $v refused, Jack told"  '(( rc == 0 )) && [[ $out == "PRWATCH CAP: not changed (the cap must be 1 to $CM)." && $(ovr) == none ]]'; done
 out=$(PRWATCH_SESSION_ID=sid-B ph "cap 8")
 ok "prompthook: not the current window → not changed" '[[ $out == *"not changed (this window is not the current watcher)"* && $(ovr) == none && ! -e $T/cap/request.json ]]'
-ok "cap: no request from the hook → 64 (the model can't raise it)" '(setcap 12; (( $? == 64 ))) && [[ $(ovr) == none ]]'
-ok "cap: refusal logged"                    'grep -q "\"cap_refused\":12" $T/events.jsonl'
+ok "cap: no request from the hook → 64 (the model can't raise it)" '(setcap $CM; (( $? == 64 ))) && [[ $(ovr) == none ]]'
+ok "cap: refusal logged"                    'grep -q "\"cap_refused\":$CM" $T/events.jsonl'
 req 8 sid-B
 ok "cap: request from another session → 64" '(setcap 8; (( $? == 64 ))) && [[ $(ovr) == none ]]'
 req 8
 ok "cap: caller from another session → 5"   '(PRWATCH_SESSION_ID=sid-B $SS cap 8 >/dev/null; (( $? == 5 ))) && [[ $(ovr) == none ]]'
-ok "cap: request says 8, call says 12 → 64" '(setcap 12; (( $? == 64 ))) && [[ $(ovr) == none && -e $T/cap/request.json ]]'
+ok "cap: request says 8, call says the max → 64" '(setcap $CM; (( $? == 64 ))) && [[ $(ovr) == none && -e $T/cap/request.json ]]'
 touch -t $(date -v-2M +%Y%m%d%H%M.%S) $T/cap/request.json
 ok "cap: request 2 min old → 64"            '[[ -e $T/cap/request.json ]] && (setcap 8; (( $? == 64 ))) && [[ $(ovr) == none ]]'
 req 8; touch -t $(date -v-30S +%Y%m%d%H%M.%S) $T/cap/request.json
 ok "cap: request 30 s old → accepted"       'setcap 8 && [[ $(ovr) == 8 ]]'
 req 7
 ok "cap: request single use"                'setcap 7 && [[ ! -e $T/cap/request.json ]] && (setcap 7; (( $? == 64 )))'
-req 13
-ok "cap: above 12 → 64 even with a request" '(setcap 13; (( $? == 64 ))) && [[ $(ovr) == 7 ]]'
+req $((CM+1))
+ok "cap: above the max → 64 even with a request" '(setcap $((CM+1)); (( $? == 64 ))) && [[ $(ovr) == 7 ]]'
 ok "cap: bad argument → 64"                 '($SS cap "8; rm" >/dev/null; (( $? == 64 ))) && ($SS cap x >/dev/null; (( $? == 64 )))'
 req 3
 ok "cap: lowering allowed"                  'setcap 3 && [[ $(ovr) == 3 ]]'
-reset; for i in {1..6}; do $SS daily-inc >/dev/null; done; c=$($SS daily-inc); rc=$?
-ok "daily-inc: 7th refused at the default 6 (65)" '(( rc == 65 )) && [[ $(used) == 6 && $c == "daily cap reached (6 of 6 today)" ]]'
-ph "cap 8" >/dev/null; $SS daily-inc >/dev/null; rc=$?
-ok "daily-inc: allowed again after cap 8"   '(( rc == 0 )) && [[ $(used) == 7 ]]'
+reset; for i in {1..$CD}; do $SS daily-inc >/dev/null; done; c=$($SS daily-inc); rc=$?
+ok "daily-inc: one past the default refused (65)" '(( rc == 65 )) && [[ $(used) == $CD && $c == "daily cap reached ($CD of $CD today)" ]]'
+ph "cap $((CD+2))" >/dev/null; $SS daily-inc >/dev/null; rc=$?
+ok "daily-inc: allowed again after a raise"  '(( rc == 0 )) && [[ $(used) == $((CD+1)) ]]'
 $SS daily-inc >/dev/null; $SS daily-inc >/dev/null; rc=$?
-ok "daily-inc: refused at 8 of 8 (65)"      '(( rc == 65 )) && [[ $(used) == 8 ]]'
-reset; sj '.cap_override["2000-01-01"]=12 | .daily[$d]=6'
-ok "daily-inc: another day's cap ignored (65)" '($SS daily-inc >/dev/null; (( $? == 65 ))) && [[ $(used) == 6 ]]'
-reset; for i in {1..10}; do $SS daily-inc >/dev/null 2>&1 & done; wait
-ok "daily-inc: 10 at once → exactly 6, state intact (locked)" '[[ $(used) == 6 ]] && jq -e .prs $T/state.json >/dev/null'
+ok "daily-inc: refused at the raised cap (65)" '(( rc == 65 )) && [[ $(used) == $((CD+2)) ]]'
+reset; sj ".cap_override[\"2000-01-01\"]=$CM | .daily[\$d]=$CD"
+ok "daily-inc: another day's cap ignored (65)" '($SS daily-inc >/dev/null; (( $? == 65 ))) && [[ $(used) == $CD ]]'
+reset; for i in {1..$((CD+4))}; do $SS daily-inc >/dev/null 2>&1 & done; wait
+ok "daily-inc: many at once → exactly the cap, state intact (locked)" '[[ $(used) == $CD ]] && jq -e .prs $T/state.json >/dev/null'
 reset; hold 3; c=$(PRWATCH_LOCK_WAIT=1 $SS daily-inc); rc=$?
 ok "daily-inc: lock held elsewhere → 75, nothing written" '(( rc == 75 )) && [[ $c == "state busy" && $(used) == 0 ]]'
 reset; hold 1; $SS daily-inc >/dev/null; rc=$?
@@ -382,20 +383,21 @@ ok "daily-inc: empty state.json → 70, not 'cap reached'" '(( rc == 70 )) && [[
 reset; sj '.daily[$d]="x"'
 ok "today: corrupt count → 70"              '($SS today >/dev/null; (( $? == 70 )))'
 reset; sj '.cap_override[$d]=8 | .daily[$d]=3'
-ok "today: day, used, cap, default, max"    '[[ $($SS today) == "{\"day\":\"$today\",\"used\":3,\"cap\":8,\"cap_default\":6,\"cap_max\":12}" ]]'
+ok "today: day, used, cap, default, max"    '[[ $($SS today) == "{\"day\":\"$today\",\"used\":3,\"cap\":8,\"cap_default\":$CD,\"cap_max\":$CM}" ]]'
 ok "today: read-only, needs no session (dry-run tick)" '[[ $(PRWATCH_SESSION_ID=sid-B $SS today | jq .cap) == 8 ]]'
 reset; ph "cap 8" >/dev/null; review; post agent-async.json; post taskstop-ok.json; abort ACT-Training/Vision#1
 ok "harness-abort refund keeps today's cap" '[[ $(used) == 0 && $(ovr) == 8 ]]'
-reset; review; post agent-async.json; post taskstop-ok.json; hold 3
-ok "harness-abort: kills and cleans up before waiting for the lock" '(PRWATCH_LOCK_WAIT=1 $SS harness-abort ACT-Training/Vision#1 >/dev/null; (( $? == 75 ))) && [[ -f $T/harness/done/a111.stopped && $(st ACT-Training/Vision#1 status) == reviewing ]]'
+reset; review; post agent-async.json; post taskstop-ok.json; hold 2
+ok "harness-abort: busy lock → 75, markers kept for a retry" '(PRWATCH_LOCK_WAIT=1 $SS harness-abort ACT-Training/Vision#1 >/dev/null; (( $? == 75 ))) && [[ -f $T/harness/a111.stopped && ! -e $T/harness/done/a111.stopped && $(st ACT-Training/Vision#1 status) == reviewing ]]'
+ok "harness-abort: retry succeeds once the lock is free" 'abort ACT-Training/Vision#1 && [[ -f $T/harness/done/a111.stopped && $(st ACT-Training/Vision#1 status) == queued && $(used) == 0 ]]'
 reset; review; post agent-async.json
 ok "live marker: state.sh cap denied"       'denied Bash "$SS cap 8"'
 # prep takes the slot before doing anything (no archive, no network); a failing clone source keeps the rest local
 pp() { PRWATCH_ARCHIVE_DIR=$T/archive PRWATCH_GIT_BASE=$T/nogit $B/prwatch-prep.sh Zzzt 9 0123456789abcdef0123456789abcdef01234567 1 2>&1; }
-reset; sj '.daily[$d]=6'; out=$(pp); rc=$?
-ok "prep: cap used up → 24, nothing done"   '(( rc == 24 )) && [[ $out == "daily cap reached (6 of 6 today)" && ! -e $T/archive ]] && [[ $(used) == 6 ]]'
+reset; sj ".daily[\$d]=$CD"; out=$(pp); rc=$?
+ok "prep: cap used up → 24, nothing done"   '(( rc == 24 )) && [[ $out == "daily cap reached ($CD of $CD today)" && ! -e $T/archive ]] && [[ $(used) == $CD ]]'
 reset; out=$(pp); rc=$?
-ok "prep: counts the review first"          '(( rc != 24 && rc != 25 && rc != 26 )) && [[ $(used) == 1 && -e $T/archive ]]'
+ok "prep: counts the review first (then the stub clone fails: 20)" '(( rc == 20 )) && [[ $(used) == 1 && -e $T/archive ]]'
 reset; hold 3; out=$(PRWATCH_LOCK_WAIT=1 pp); rc=$?
 ok "prep: state busy → 26, nothing done"    '(( rc == 26 )) && [[ $(used) == 0 && ! -e $T/archive ]]'
 reset; out=$(PRWATCH_SESSION_ID=sid-B pp); rc=$?
@@ -403,7 +405,7 @@ ok "prep: other session → 25, not counted"  '(( rc == 25 )) && [[ $(used) == 0
 reset; : > $T/state.json; out=$(pp); rc=$?
 ok "prep: unreadable state → 25 (a visible failure)" '(( rc == 25 )) && [[ $out == *"state unreadable"* && ! -e $T/archive ]]'
 reset; out=$(PRWATCH_SESSION_ID= pp); rc=$?
-ok "prep: test mode, no session (T2) → not counted" '(( rc != 24 && rc != 25 && rc != 26 )) && [[ $(used) == 0 ]]'
+ok "prep: test mode, no session (T2) → not counted" '(( rc == 20 )) && [[ $(used) == 0 && -e $T/archive ]]'
 # tick reports the cap (dry run, stub gh, fixed weekday)
 tk() { mkdir -p $T/stub; ln -sf $PRW/test/stub/osascript $T/stub/osascript
   cat > $T/stub/gh <<'EOF'
@@ -414,13 +416,13 @@ EOF
   chmod +x $T/stub/gh
   PRWATCH_STUB_BIN=$T/stub PRWATCH_ONLY_PR=ACT-Training/Zzzt#9 PRWATCH_NOW=${WD}T10:00 $B/prwatch-tick.sh --dry-run | jq -c "${1:-[.cap,.cap_default,.councils_today,.cap_left,.cap_max]}"; }
 reset
-ok "tick: default cap 6"                    '[[ $(tk) == "[6,6,0,6,12]" ]]'
+ok "tick: default cap"                      '[[ $(tk) == "[$CD,$CD,0,$CD,$CM]" ]]'
 sj '.cap_override[$d]=8 | .daily[$d]=3 | .cap_override["2026-09-28"]=12' $WD
-ok "tick: today's cap 8, 3 used, 5 left"    '[[ $(tk) == "[8,6,3,5,12]" ]]'
+ok "tick: today's cap 8, 3 used, 5 left"    '[[ $(tk) == "[8,$CD,3,5,$CM]" ]]'
 sj '.cap_override[$d]=3 | .daily[$d]=5' $WD
-ok "tick: nothing left never below 0"       '[[ $(tk) == "[3,6,5,0,12]" ]]'
+ok "tick: nothing left never below 0"       '[[ $(tk) == "[3,$CD,5,0,$CM]" ]]'
 reset; PRWATCH_NOW=${WD}T10:00 ph "cap 10" >/dev/null
-ok "tick: reads the cap the hook set (same day in test mode)" '[[ $(ovr $WD) == 10 && $(tk) == "[10,6,0,10,12]" ]]'
+ok "tick: reads the cap the hook set (same day in test mode)" '[[ $(ovr $WD) == 10 && $(tk) == "[10,$CD,0,10,$CM]" ]]'
 reset; : > $T/state.json
 ok "tick: unreadable state → error, Jack notified" '[[ $(tk "[.status,.kind]") == "[\"error\",\"state_unreadable\"]" ]] && grep -q "error state :: The watcher can.t read its state file" $T/notify.log'
 reset; PRWATCH_NOW=${WD}T10:00 $SS stop-today
@@ -435,10 +437,10 @@ ok "sched gate: tick plus extra text denied" '[[ $(sg CronCreate "*/15 8-15 * * 
 ok "sched gate: one-shot / other time denied" '[[ $(sg CronCreate "*/15 8-15 * * 1-5" /prwatch-tick false) == 2 && $(sg CronCreate "* * * * *" /prwatch-tick) == 2 ]]'
 ok "sched gate: ScheduleWakeup / RemoteTrigger / unknown denied" '[[ $(sg ScheduleWakeup "" "cap 12") == 2 && $(sg RemoteTrigger) == 2 && $(sg CronCreateV2 "3 16 * * 1-5" /prwatch-eod) == 2 ]]'
 ok "sched gate: garbage → denied"           '[[ $(print "not json" | $PH sched 2>/dev/null; print $?) == 2 ]]'
-for jb in ${(f)"$(grep -o 'CronCreate. recurring `[^`]*` with prompt `[^`]*`' $S7/prwatch-start/SKILL.md)"}; do
-  sc=${${jb#*recurring \`}%%\`*}; sp=${${jb##*prompt \`}%\`}
+jobs=0; for jb in ${(f)"$(grep -o 'CronCreate. recurring `[^`]*` with prompt `[^`]*`' $S7/prwatch-start/SKILL.md)"}; do
+  sc=${${jb#*recurring \`}%%\`*}; sp=${${jb##*prompt \`}%\`}; (( jobs++ ))
   ok "sched gate: start skill's '$sp' job allowed" '[[ $(sg CronCreate "$sc" "$sp") == 0 ]]'; done
-ok "start skill: exactly two jobs found"    '(( $(grep -c "CronCreate. recurring" $S7/prwatch-start/SKILL.md) == 2 ))'
+ok "start skill: both jobs parsed and checked" '(( jobs == 2 ))'
 M=".*(Cron|Schedule|Wakeup|Trigger).*"
 ok "settings: UserPromptSubmit → prompthook" 'jq -e ".hooks.UserPromptSubmit[0].hooks|map(.command)|index(\"$PH prompt\")" $C >/dev/null'
 ok "settings: scheduling gate hook"         'jq -e --arg m "$M" ".hooks.PreToolUse[]|select(.matcher==\$m)|.hooks[0].command == \"$PH sched\"" $C >/dev/null'
@@ -446,10 +448,9 @@ ok "settings: gate matcher covers the scheduling tools" '(for t in CronCreate Cr
 ok "settings: ScheduleWakeup denied"        'jq -e ".permissions.deny|index(\"ScheduleWakeup\")" $C >/dev/null'
 ok "guard: model cannot run prompthook"     '[[ $(g "$PH prompt") == 2 && $(g "echo cap 12 | $PH prompt") == 2 ]]'
 # the numbers live only in prwatch-state.sh; the prose Jack reads must agree with them
-CD=$(grep -o "CAP_DEFAULT=[0-9]*" $B/prwatch-state.sh); CD=${CD#*=}; CM=$(grep -o "CAP_MAX=[0-9]*" $B/prwatch-state.sh); CM=${CM#*=}
 ok "one definition of the default"          '! grep -q "CAP_DEFAULT=" $B/prwatch-tick.sh && [[ -n $CD && -n $CM ]]'
 ok "prose numbers match (launcher, start banner, README)" 'grep -q "normally $CD, at most $CM" "$L" && grep -q "default $CD, max $CM" $S7/prwatch-start/SKILL.md && grep -q "instead of $CD (1 to $CM" $PRW/README.md'
-ok "model-facing text reads the cap, no literals" '! grep -Eq "or 6|otherwise 6|up to 12|1 to 12" $PRW/CLAUDE.md $S7/prwatch-tick/SKILL.md $S7/prwatch-eod/SKILL.md $S7/prwatch-review/SKILL.md'
+ok "model-facing text reads the cap, no literals" '! grep -Eq "or $CD|otherwise $CD|up to $CM|1 to $CM" $PRW/CLAUDE.md $S7/prwatch-tick/SKILL.md $S7/prwatch-eod/SKILL.md $S7/prwatch-review/SKILL.md'
 ok "tick skill: cap from the JSON, exits 24/26" 'grep -q "<cap_max>" $S7/prwatch-tick/SKILL.md && grep -q "exit 24" $S7/prwatch-tick/SKILL.md && grep -q "exit 26" $S7/prwatch-tick/SKILL.md'
 ok "review skill: prep counts; 24/26 requeue, 25 fails" '! grep -q "daily-inc" $S7/prwatch-review/SKILL.md && grep -q "Exit 24" $S7/prwatch-review/SKILL.md && grep -q "exit 26" $S7/prwatch-review/SKILL.md && grep -q "exit 25" $S7/prwatch-review/SKILL.md'
 ok "status and eod use state.sh today"      'grep -q "prwatch-state.sh today" $PRW/CLAUDE.md && grep -q "prwatch-state.sh today" $S7/prwatch-eod/SKILL.md'

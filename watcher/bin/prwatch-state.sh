@@ -51,7 +51,7 @@ case ${1:-} in
   pause) [[ ${2:-} == [0-9]## ]] || exit 64; write --arg u "$(date -v+${2}M -Iseconds)" '.paused_until=$u' ;;
   stop-today) touch $S/stopped-$td $S/stopped-$(date +%F) ;;          # test mode: the tick's day and the watchdog's
   go-ahead) okkey ${2:-}; [[ ${3:-} == [0-9a-f](#c40) ]] || exit 64; write --arg k $2 --arg s $3 '.go_ahead[$k]=$s' ;;
-  daily-inc) t=$(today) || { print -r -- "$t"; exit 70; }; used=$(jq .used <<<$t); cap=$(jq .cap <<<$t)
+  daily-inc) t=$(today) || { print -r -- "$t"; exit 70; }; read used cap <<<"$(jq -r '"\(.used) \(.cap)"' <<<$t)"
        (( used < cap )) || { print "daily cap reached ($used of $cap today)"; exit 65; }
        write --arg d $td '.daily[$d] = ((.daily[$d] // 0) + 1)' ;;
   cap) [[ ${2:-} == [1-9][0-9]# ]] && (( $2 <= CAP_MAX )) || { print "the cap must be 1 to $CAP_MAX"; exit 64; }
@@ -91,10 +91,11 @@ case ${1:-} in
          [[ $pid == <-> && $pid != $$ ]] && kill -9 $pid 2>/dev/null
        done
        $PRW/bin/prwatch-cleanup.sh $key
-       mkdir -p $H/done; mv $mine $H/done/
+       # requeue + refund under the lock; markers are archived only after that, so a busy lock (75) can simply be retried
        lock; [[ "$(jq -r --arg k $key '.prs[$k].status // ""' $F)" == reviewing ]] || { print "not reviewing"; exit 64; }
        write --arg k $key --arg t $now --arg d $td \
          '.prs[$k] = (.prs[$k] | .status="queued" | .updated_at=$t | del(.step)) | .daily[$d] = ([((.daily[$d] // 0) - 1), 0] | max)'
+       mkdir -p $H/done; mv $mine $H/done/
        touch $S/stopped-$td $S/stopped-$(date +%F)
        print -r -- "{\"t\":\"$now\",\"key\":\"$key\",\"status\":\"queued\",\"harness_abort\":true}" >> $S/events.jsonl ;;
   *) print "usage"; exit 64 ;;

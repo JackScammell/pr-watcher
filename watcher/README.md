@@ -12,6 +12,7 @@ The PR Watcher keeps an eye on GitHub for pull requests where someone has asked 
 **While a review is running** (usually 25–45 minutes) the window is busy. Anything you type waits until the review finishes. Press **Esc** to stop that review; the next check starts it again.
 
 **Commands you can type in the window:**
+<!-- The cap numbers in the `cap 8` row are checked against prwatch-state.sh by test/harness/run.sh. -->
 | Type | What happens |
 |---|---|
 | `d` | Ask me about waiting drafts now |
