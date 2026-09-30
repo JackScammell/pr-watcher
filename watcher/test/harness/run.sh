@@ -392,9 +392,10 @@ reset; review; post agent-async.json; post taskstop-ok.json; hold 2
 ok "harness-abort: busy lock → 75, markers kept for a retry" '(PRWATCH_LOCK_WAIT=1 $SS harness-abort ACT-Training/Vision#1 >/dev/null; (( $? == 75 ))) && [[ -f $T/harness/a111.stopped && ! -e $T/harness/done/a111.stopped && $(st ACT-Training/Vision#1 status) == reviewing ]]'
 ok "harness-abort: retry succeeds once the lock is free" 'abort ACT-Training/Vision#1 && [[ -f $T/harness/done/a111.stopped && $(st ACT-Training/Vision#1 status) == queued && $(used) == 0 ]]'
 reset; review; post agent-async.json; post taskstop-ok.json; mkdir $T/state.json.tmp        # the requeue write can't happen
-ok "harness-abort: failed write → 70, markers kept for a retry" '($SS harness-abort ACT-Training/Vision#1 >/dev/null 2>&1; (( $? == 70 ))) && [[ -f $T/harness/a111.stopped && $(st ACT-Training/Vision#1 status) == reviewing ]]'
+out=$($SS harness-abort ACT-Training/Vision#1 2>/dev/null); rc=$?
+ok "harness-abort: failed write → 70, markers kept, nothing else done" '(( rc == 70 )) && [[ $out == "state write failed" && -f $T/harness/a111.stopped && $(st ACT-Training/Vision#1 status) == reviewing && $(used) == 1 ]] && ! grep -q harness_abort $T/events.jsonl'
 rmdir $T/state.json.tmp
-ok "harness-abort: retry after the failed write succeeds" 'abort ACT-Training/Vision#1 && [[ $(st ACT-Training/Vision#1 status) == queued && -f $T/harness/done/a111.stopped ]]'
+ok "harness-abort: retry after the failed write succeeds" 'abort ACT-Training/Vision#1 && [[ $(st ACT-Training/Vision#1 status) == queued && -f $T/harness/done/a111.stopped && $(used) == 0 ]]'
 reset; review; post agent-async.json
 ok "live marker: state.sh cap denied"       'denied Bash "$SS cap 8"'
 # prep takes the slot before doing anything (no archive, no network); a failing clone source keeps the rest local
