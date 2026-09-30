@@ -26,7 +26,7 @@ Reviewers suggest: <RECOMMENDATION IN CAPS>
 **Tests line:**
 - Laravel (`is_laravel: true`): exactly `Tests: NOT run (Laravel — Flux Pro credentials)`.
 - Otherwise from `meta.json.tests`: `Tests: ran <ran…>, <mutations> mutations`; if `could_not_run` is non-empty add ` · NOT run: <items> → type "run tests" to run them on your Mac`.
-- If `ran` is empty the line must start `Tests: NONE ran — this suggestion rests on reading the code only`.
+- If `ran` is empty the line must start `Tests: NONE ran — this suggestion rests on reading the code only` (builds in `built` don't count), followed by ` · CI: <ci>`.
 
 ## 3. Ping
 `/Users/jack/prwatch/bin/prwatch-state.sh set <key> asking` (sends the decision notification), immediately before the question.
@@ -37,7 +37,7 @@ Reviewers suggest: <RECOMMENDATION IN CAPS>
 - `edited` → Jack edited `review-body.md`: re-read, show the diff against what you showed, re-freeze (new `h`), re-ask.
 - any other text → a change request: edit `A/draft/review-body.md` (keep line 1 marker exactly), show the diff, re-freeze, re-ask.
 - `ask <angle>: <question>` → re-dispatch that one reviewer (foreground `Agent`, with its previous `reviews/<angle>.md`), show the answer, re-ask.
-- `run tests` → **not available for Laravel** (say so: "Tests: NOT run (Laravel — Flux Pro credentials)"). Otherwise pick the recipe from `profile.json` (`dotnet-test` if has_dotnet, `ng-test` if has_angular, `python-unittest` if has_python) and run `/Users/jack/prwatch/bin/prwatch-buildrun.sh <key> <recipe>` with Bash **`timeout: 2400000`** (ask rule + its own Mac dialog). Then re-dispatch testing-build with the log, update the draft/meta, re-freeze, re-ask.
+- `run tests` (only needed when the automatic runs couldn't run something; normally they cover .NET, Angular and Python) → **not available for Laravel** (say so: "Tests: NOT run (Laravel — Flux Pro credentials)"). Otherwise pick the recipe from `profile.json` (`dotnet-test` if has_dotnet, `ng-test` if has_angular, `python-unittest` if has_python) and run `/Users/jack/prwatch/bin/prwatch-buildrun.sh <key> <recipe>` with Bash **`timeout: 2400000`** (ask rule + its own Mac dialog). Then re-dispatch testing-build with the log, update the draft/meta, re-freeze, re-ask.
 - `run probe <id>` → `/Users/jack/prwatch/bin/prwatch-buildrun.sh <key> dotnet-probe|ng-probe <id>` (same timeout), then as above.
 - `later` → `set <key> awaiting_decision`, stop.
 - `re-review` → `set <key> queued sha=<sha>`, stop.

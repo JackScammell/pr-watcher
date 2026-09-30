@@ -34,6 +34,8 @@ If the live check passes, delete `~/prwatch/state/stopped-<today>` and relaunch.
 
 **"Claude Code changed how it reports subagents"** (hookdrift) means the background check may not recognise what Claude Code now sends back. The watcher keeps running. Run `~/prwatch/test/harness/live-check.sh` before relying on it.
 
+**Tests run automatically.** The testing reviewer runs the PR's .NET, Python and Angular tests itself, in sandboxes. Angular uses `prwatch-ngtest.sh`, which needs Puppeteer's headless Chrome (`~/.cache/puppeteer/chrome-headless-shell`). If that folder is ever missing, install it once with `npx @puppeteer/browsers install chrome-headless-shell`. Test projects that would connect to a real local database are skipped and listed under "NOT run". See `BUILD-NOTES.md` → "Sandbox limits for PR tests".
+
 **After every Claude Code update** run `~/prwatch/test/harness/live-check.sh` (about 3 minutes, a few cheap model calls). It checks the behaviour the watcher's safety checks depend on.
 
 Reviews and drafts are kept in `~/Documents/vision-reviews/<date>-pr<N>-round<k>/`.
@@ -56,13 +58,13 @@ Clicking a notification opens Script Editor, not Terminal. Switch to the Termina
 This makes the watcher's scripts and settings read-only, so nothing (including the AI) can change them:
 
 ```
-chflags -R uchg ~/prwatch/bin ~/prwatch/config ~/prwatch/.claude ~/prwatch/angles ~/prwatch/CLAUDE.md
+chflags -R uchg ~/prwatch/bin ~/prwatch/shims ~/prwatch/config ~/prwatch/.claude ~/prwatch/angles ~/prwatch/CLAUDE.md
 ```
 
 To change something later, unlock, edit, then lock again:
 
 ```
-chflags -R nouchg ~/prwatch/bin ~/prwatch/config ~/prwatch/.claude ~/prwatch/angles ~/prwatch/CLAUDE.md
+chflags -R nouchg ~/prwatch/bin ~/prwatch/shims ~/prwatch/config ~/prwatch/.claude ~/prwatch/angles ~/prwatch/CLAUDE.md
 ```
 
 Because `.claude` is locked, "Yes, and don't ask again" at a permission prompt would fail anyway. That's another reason to always choose plain "Yes".

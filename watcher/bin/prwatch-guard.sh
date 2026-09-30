@@ -2,7 +2,7 @@
 # PreToolUse(Bash) guard — tripwire only; the Bash sandbox is the boundary.
 emulate -L zsh; setopt extendedglob
 cmd=$(/usr/bin/jq -r '.tool_input.command // ""')
-canon='^/Users/jack/prwatch/bin/prwatch-(tick|prep|state|notify|cleanup|post|buildrun)\.sh( [A-Za-z0-9/._@#:=+,-]+)*$'
+canon='^/Users/jack/prwatch/bin/prwatch-(tick|prep|state|notify|cleanup|post|buildrun|ngtest|dotnettest)\.sh( [A-Za-z0-9/._@#:=+,-]+)*$'
 if [[ "$cmd" == *prwatch-* ]]; then
   [[ "$cmd" =~ $canon ]] && exit 0
   print -u2 "prwatch guard: call watcher scripts only as /Users/jack/prwatch/bin/prwatch-<name>.sh with plain arguments"; exit 2

@@ -73,6 +73,7 @@ export CLAUDE_AFK_TIMEOUT_MS=600000           # unanswered questions continue af
 export BASH_DEFAULT_TIMEOUT_MS=600000         # 10 min for ordinary Bash calls
 export BASH_MAX_TIMEOUT_MS=2400000            # 40 min ceiling for prep / post / buildrun
 export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 # reviewers must run in the foreground (2.1.284 made background the default)
+export PATH="$PRW/shims:$PATH"                # mktemp shim: sandboxed scripts get a $TMPDIR template (docs/fix-sandbox-tests.md)
 "$CLAUDE_BIN" \
   --settings "$PRW/config/settings.json" \
   --setting-sources project,local \

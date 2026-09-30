@@ -1,0 +1,19 @@
+[1A[2KChrome Headless 145.0.7632.77 (Mac OS 10.15.7): Executed 3744 of 3749 SUCCESS (0 secs / 5.329 secs)
+[1A[2KChrome Headless 145.0.7632.77 (Mac OS 10.15.7): Executed 3745 of 3749 SUCCESS (0 secs / 5.329 secs)
+[1A[2KChrome Headless 145.0.7632.77 (Mac OS 10.15.7): Executed 3746 of 3749 SUCCESS (0 secs / 5.329 secs)
+[1A[2KChrome Headless 145.0.7632.77 (Mac OS 10.15.7): Executed 3747 of 3749 SUCCESS (0 secs / 5.329 secs)
+[1A[2KChrome Headless 145.0.7632.77 (Mac OS 10.15.7): Executed 3748 of 3749 SUCCESS (0 secs / 5.329 secs)
+[1A[2KChrome Headless 145.0.7632.77 (Mac OS 10.15.7): Executed 3749 of 3749 SUCCESS (0 secs / 5.329 secs)
+[1A[2KChrome Headless 145.0.7632.77 (Mac OS 10.15.7): Executed 3749 of 3749 SUCCESS (7.135 secs / 5.329 secs)
+TOTAL: 3749 SUCCESS
+TOTAL: 3749 SUCCESS
+TOTAL: 3749 SUCCESS
+
+=============================== Coverage summary ===============================
+Statements   : Unknown% ( 0/0 )
+Branches     : Unknown% ( 0/0 )
+Functions    : Unknown% ( 0/0 )
+Lines        : Unknown% ( 0/0 )
+================================================================================
+✔ Browser application bundle generation complete.
+✔ Browser application bundle generation complete.

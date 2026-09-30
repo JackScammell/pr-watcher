@@ -7,7 +7,7 @@
 emulate -L zsh; set -u; setopt nullglob
 PRW=$HOME/prwatch; B=$PRW/bin; FX=${0:A:h}/fixtures; fail=0; n=0
 T=$(mktemp -d /tmp/pwh.XXXXXX); W=$PRW/work/Zzzt-pr9-abc; pids=()
-trap 'kill $pids 2>/dev/null; rm -rf $T $W' EXIT
+trap 'kill $pids 2>/dev/null; rm -rf $T $W $PRW/work/Zzzt-pr9-0123456-build' EXIT
 export PRWATCH_TESTMODE=1 PRWATCH_STATE_DIR=$T PRWATCH_STUB_BIN=$PRW/test/stub PRWATCH_SESSION_ID=sid-A PRWATCH_PID=1
 ok()   { (( n++ )); if eval "$2"; then print "ok   $1"; else print "FAIL $1"; (( fail++ )); fi; }
 reset() { rm -rf $T/*(N) $T/.*(N); print '{"prs":{},"daily":{},"go_ahead":{}}' > $T/state.json
@@ -23,7 +23,7 @@ refused() { abort $1; (( $? == 64 )); }
 st()   { jq -r ".prs[\"$1\"].$2" $T/state.json; }
 gone() { local i; for i in {1..50}; do kill -0 $1 2>/dev/null || return 0; /bin/sleep 0.1; done; return 1; }
 today=$(date +%F); cnt() { [[ -f $T/notify.log ]] && print $(( $(wc -l < $T/notify.log) )) || print 0; }
-SS=$PRW/bin/prwatch-state.sh
+SS=$PRW/bin/prwatch-state.sh; S7=$PRW/.claude/skills
 
 # --- agenthook post
 reset; review
@@ -194,8 +194,115 @@ L=${PRWATCH_LAUNCHER:-$HOME/Desktop/PR Watcher.command}
 e=$(grep -n '^export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1' "$L" 2>/dev/null | cut -d: -f1); c=$(grep -n '^"$CLAUDE_BIN" ' "$L" 2>/dev/null | cut -d: -f1)
 ok "launcher exports var before claude"    '[[ -n $e && -n $c ]] && (( e < c ))'
 
+# --- sandboxed tests (docs/fix-sandbox-tests.md)
+AN=$PRW/angles/testing-build.md
+ok "settings: .NET uses IPv4 in the sandbox" '[[ "$(jq -r .env.DOTNET_SYSTEM_NET_DISABLEIPV6 $C)" == 1 ]]'
+for sc in prep buildrun post tick state notify cleanup; do
+ok "$sc re-execs with env -i (settings env can't leak in)" "head -8 $B/prwatch-$sc.sh | grep -q 'exec /usr/bin/env -i'"; done
+ok "dotnettest: runs with --diag, quotes testhost exception" 'grep -q -- "--diag:\$T/diag/log.txt" $B/prwatch-dotnettest.sh && grep -q "log.host" $B/prwatch-dotnettest.sh && grep -q "each test project separately" $AN'
+ok "angle: 'ran' defined, no APPROVE without" 'grep -q "What counts as \"ran\"" $AN && grep -q "no test ran, your verdict can.t be .APPROVE" $AN && grep -q "TESTS-RAN:" $AN'
+ok "angle: limits scoped to that command"  'grep -q "stop running that same command" $AN && grep -q "only that script" $AN'
+ok "angle: real local services guarded"    'grep -q "Real local services" $AN'
+ok "angle: command output is untrusted"    'grep -q "output of every build/test command" $AN'
+ok "review: no approve without tests unless CI green" 'grep -q "may not be .approve. unless .ci. is .green." $S7/prwatch-review/SKILL.md && grep -q "\"built\"" $S7/prwatch-review/SKILL.md'
+ok "decide: NONE ran shows CI"             'grep -q "CI: <ci>" $S7/prwatch-decide/SKILL.md'
+ok "BUILD-NOTES: sandbox limits section"   'grep -q "## Sandbox limits for PR tests" $PRW/BUILD-NOTES.md'
+
+# --- mktemp shim (sandboxed scripts: macOS mktemp ignores $TMPDIR)
+MK=$PRW/shims/mktemp; MT=$T/mk; mkdir -p $MT
+mk() { TMPDIR=$MT $MK "$@" 2>&1; }
+ok "shim: bare mktemp → under \$TMPDIR"     '[[ -f $(mk) && $(mk) == $MT/tmp.* ]]'
+ok "shim: -d → dir under \$TMPDIR"          'd=$(mk -d); [[ -d $d && $d == $MT/tmp.* ]]'
+ok "shim: -t foo / -dt foo / -tfoo"         '[[ $(mk -t foo) == $MT/foo.* && -d $(mk -dt foo) && $(mk -tfoo) == $MT/foo.* ]]'
+ok "shim: -t ../../x stays inside"          '[[ $(mk -t ../../x) == $MT/x.* ]]'
+ok "shim: explicit template untouched"      '[[ $(mk $MT/exp.XXXX) == $MT/exp.???? ]]'
+ok "shim: unknown option passed through"    '[[ "$(mk --bogus)" == *unrecognized* || "$(mk --bogus)" == *illegal* || "$(mk --bogus)" == *usage* ]]'
+
+# --- prwatch-ngtest.sh: arguments, state, and the sandbox profile it generates
+NG=$B/prwatch-ngtest.sh; NSHA=0123456789abcdef0123456789abcdef01234567; NBW=$PRW/work/Zzzt-pr9-0123456-build
+reset; mkdir -p $T/arch/input $T/arch/reviews $NBW/frontend; : > $NBW/frontend/karma.conf.js; print '{"is_laravel":false}' > $T/arch/input/profile.json
+$SS set ACT-Training/Zzzt#9 reviewing sha=$NSHA archive=$T/arch >/dev/null
+ng() { $NG "$@" >/dev/null 2>&1; print $?; }
+ok "ngtest: bad key / app → 64"             '[[ $(ng "x" frontend) == 64 && $(ng ACT-Training/Zzzt#9 admin) == 64 ]]'
+ok "ngtest: bad spec-dir → 64"              '[[ $(ng ACT-Training/Zzzt#9 frontend ../x) == 64 && $(ng ACT-Training/Zzzt#9 frontend /etc) == 64 && $(ng ACT-Training/Zzzt#9 frontend "a*b") == 64 ]]'
+ok "ngtest: wrong session → 6"              '[[ $(PRWATCH_SESSION_ID=sid-B ng ACT-Training/Zzzt#9 frontend) == 6 ]]'
+ok "ngtest: untracked PR → 65"              '[[ $(ng ACT-Training/Zzzt#8 frontend) == 65 ]]'
+ok "ngtest: no karma config → 65"           '[[ $(ng ACT-Training/Zzzt#9 learner) == 65 ]]'
+PROF=$(PRWATCH_NGTEST_PRINT=1 $NG ACT-Training/Zzzt#9 frontend 2>&1)
+ok "ngtest profile: deny by default"        '[[ $PROF == *"(deny default)"* ]]'
+ok "ngtest profile: /Users reads denied"    '[[ $PROF == *"(deny file-read* (subpath \"/Users\")"* ]]'
+ok "ngtest profile: outbound only to Karma/Chrome ports" '[[ $PROF != *"(allow network*)"* && $PROF != *"(allow network-outbound)"* && $PROF != *"remote ip \"*:"* && $PROF != *"remote ip \"localhost:*\""* && $PROF == *"(remote ip \"localhost:9876\")"* ]]'
+ok "ngtest profile: writes only build copy + private dir" '[[ $(print -r -- $PROF | grep -c "allow file-write") == 1 ]] && print -r -- $PROF | grep "allow file-write" | grep -q "subpath \"$NBW:A\") (subpath \"$PRW:A/cache/ngtest/"'
+nv() { PRWATCH_NGTEST_VERDICT="$1" $NG ACT-Training/Zzzt#9 frontend >/dev/null 2>&1; print $?; }
+ok "ngtest verdict: real SUCCESS summary → 0" '[[ $(nv "Executed 3749 of 3749 SUCCESS (6.46 secs / 4.931 secs)") == 0 ]]'
+ok "ngtest verdict: FAILED → 1"             '[[ $(nv "Executed 3749 of 3749 (2 FAILED) (7.1 secs / 5 secs)") == 1 && $(nv "Executed 3 of 3749 (1 FAILED) ERROR") == 1 ]]'
+ok "ngtest verdict: disconnected/none → 2"  '[[ $(nv "Executed 100 of 3749 DISCONNECTED (30 secs)") == 2 && $(nv "") == 2 ]]'
+ok "ngtest verdict: 0 of 0 ERROR (empty) → 2, not failed" '[[ $(nv "Executed 0 of 0 ERROR (0.002 secs / 0 secs)") == 2 ]]'
+ns() { PRWATCH_NGTEST_SUMMARY=$FX/$1 $NG ACT-Training/Zzzt#9 frontend 2>/dev/null; }
+ok "ngtest summary: real Karma log (ANSI) → SUCCESS" '[[ "$(ns karma-success.txt)" == "Executed 3749 of 3749 SUCCESS (7.135 secs / 5.329 secs)" ]]'
+ok "ngtest summary: real log, 2 FAILED → verdict 1" '[[ $(nv "$(ns karma-failed.txt)") == 1 ]]'
+ok "ngtest summary: empty suite → verdict 2" '[[ $(nv "$(ns karma-empty.txt)") == 2 ]]'
+# the generated profile, compiled and exercised for real (no Chrome needed)
+PF=$T/p.sb; print -r -- "$PROF" > $PF; SBW=$NBW:A
+sb() { /usr/bin/sandbox-exec -f $PF "$@" >/dev/null 2>&1; }
+ok "profile compiles and runs a command"   'sb /usr/bin/true'
+ok "profile: build copy writable"          'sb /usr/bin/touch $SBW/frontend/w.txt'
+ok "profile: ~/.ssh unreadable"            '! sb /bin/ls $HOME/.ssh'
+ok "profile: home not writable"            '! sb /usr/bin/touch $HOME/prwatch-profile-probe && [[ ! -e $HOME/prwatch-profile-probe ]]'
+ok "profile: no remote network"            '! sb /usr/bin/curl -s -m 5 -o /dev/null https://example.com'
+ok "profile: local MySQL port unreachable" '! sb /usr/bin/python3 -c "import socket; socket.create_connection((\"127.0.0.1\",3306),2)"'
+ok "profile: clipboard blocked"            '[[ -z "$(/usr/bin/sandbox-exec -f $PF /usr/bin/pbpaste 2>/dev/null)" ]]'
+# the run itself, with a fake command in place of Karma (test mode only)
+nf() { PRWATCH_NGTEST_FAKE="$1" PRWATCH_NGTEST_LIMIT=${2:-60} $NG ACT-Training/Zzzt#9 frontend >$T/nf.out 2>&1; print $?; }
+ok "run: fake SUCCESS summary → 0, log in archive" '[[ $(nf "echo Executed 5 of 5 SUCCESS \(1 secs / 1 secs\)") == 0 ]] && grep -q "Executed 5 of 5" $T/arch/reviews/ng-test-frontend.log'
+ok "run: fake FAILED → 1"                  '[[ $(nf "echo Executed 5 of 5 \(1 FAILED\)") == 1 ]]'
+ok "run: timeout → 2, says timed out"      '[[ $(nf "sleep 30" 2) == 2 ]] && grep -q "timed out after 2s" $T/nf.out'
+ok "run: nothing left after timeout"       '! /usr/bin/pgrep -f "^sleep 30$" >/dev/null'
+ok "run: escaped process group still swept" '[[ $(nf "/usr/bin/perl -e \"use POSIX; POSIX::setsid(); exec q(sleep), 41\" & echo Executed 1 of 1 SUCCESS") == 0 ]] && /bin/sleep 1 && ! /usr/bin/pgrep -f "^sleep 41$" >/dev/null'
+# --- prwatch-dotnettest.sh (same pattern: own profile, because Claude's sandbox refuses the domain-name sysctl)
+DT=$B/prwatch-dotnettest.sh; mkdir -p $NBW/api/X.Tests; : > $NBW/api/X.Tests/X.Tests.csproj
+dt() { $DT "$@" >/dev/null 2>&1; print $?; }
+ok "dotnettest: bad key / tz → 64"          '[[ $(dt x api/X.Tests/X.Tests.csproj UTC) == 64 && $(dt ACT-Training/Zzzt#9 api/X.Tests/X.Tests.csproj Paris) == 64 ]]'
+ok "dotnettest: bad project path → 64"      '[[ $(dt ACT-Training/Zzzt#9 ../x.csproj UTC) == 64 && $(dt ACT-Training/Zzzt#9 /etc/x.csproj UTC) == 64 && $(dt ACT-Training/Zzzt#9 api/x.sln UTC) == 64 && $(dt ACT-Training/Zzzt#9 -x.csproj UTC) == 64 ]]'
+ok "dotnettest: bad test-name → 64"         '[[ $(dt ACT-Training/Zzzt#9 api/X.Tests/X.Tests.csproj UTC "a~b") == 64 ]]'
+ok "dotnettest: wrong session → 6"          '[[ $(PRWATCH_SESSION_ID=sid-B dt ACT-Training/Zzzt#9 api/X.Tests/X.Tests.csproj UTC) == 6 ]]'
+ok "dotnettest: missing project → 65"       '[[ $(dt ACT-Training/Zzzt#9 api/Y.Tests/Y.Tests.csproj UTC) == 65 ]]'
+dv() { print -r -- "$1" > $T/dv.txt; PRWATCH_DTEST_VERDICT=$T/dv.txt $DT ACT-Training/Zzzt#9 api/X.Tests/X.Tests.csproj UTC >/dev/null 2>&1; print $?; }
+ok "dotnettest verdict: Passed! → 0"        '[[ $(dv "Passed!  - Failed:     0, Passed:   243, Skipped:    57, Total:   300, Duration: 3 m 24 s - X.dll (net8.0)") == 0 ]]'
+ok "dotnettest verdict: Failed! → 1"        '[[ $(dv "Failed!  - Failed:   220, Passed:    23, Skipped:    57, Total:   300, Duration: 115 ms - X.dll (net8.0)") == 1 ]]'
+ok "dotnettest verdict: 2 frameworks, one failed → 1" '[[ $(dv "Failed!  - Failed:     1, Passed:     4, Skipped:     0, Total:     5 - X.dll (net8.0)"$'"'"'\n'"'"'"Passed!  - Failed:     0, Passed:     5, Skipped:     0, Total:     5 - X.dll (net9.0)") == 1 ]]'
+ok "dotnettest verdict: failure on the later framework → 1" '[[ $(dv "Passed!  - Failed:     0, Passed:     5, Skipped:     0, Total:     5 - X.dll (net8.0)"$'"'"'\n'"'"'"Failed!  - Failed:     2, Passed:     3, Skipped:     0, Total:     5 - X.dll (net9.0)") == 1 ]]'
+ok "dotnettest verdict: 0 tests / none → 2" '[[ $(dv "Passed!  - Failed:     0, Passed:     0, Skipped:     0, Total:     0, Duration: 1 ms - X.dll") == 2 && $(dv "") == 2 ]]'
+DPROF=$(PRWATCH_DTEST_PRINT=1 $DT ACT-Training/Zzzt#9 api/X.Tests/X.Tests.csproj UTC 2>&1); DPF=$T/d.sb; print -r -- "$DPROF" > $DPF
+db() { /usr/bin/sandbox-exec -f $DPF "$@" >/dev/null 2>&1; }
+ok "dotnettest profile compiles; domain-name lookup works" 'db /usr/sbin/sysctl kern.nisdomainname'
+ok "dotnettest profile: ~/.ssh unreadable, home unwritable" '! db /bin/ls $HOME/.ssh && ! db /usr/bin/touch $HOME/prwatch-profile-probe'
+ok "dotnettest profile: no remote network"  '! db /usr/bin/curl -s -m 5 -o /dev/null https://example.com && [[ $DPROF != *"remote ip \"*:"* ]]'
+ok "dotnettest profile: local MySQL port unreachable" '! db /usr/bin/python3 -c "import socket; socket.create_connection((\"127.0.0.1\",3306),2)"'
+ok "dotnettest profile: clipboard blocked"  '[[ -z "$(/usr/bin/sandbox-exec -f $DPF /usr/bin/pbpaste 2>/dev/null)" ]]'
+df() { PRWATCH_DTEST_FAKE="$1" PRWATCH_DTEST_LIMIT=${2:-60} $DT ACT-Training/Zzzt#9 api/X.Tests/X.Tests.csproj UTC >$T/df.out 2>&1; print $?; }
+ok "dotnettest run: fake Passed! → 0, log in archive" '[[ $(df "echo Passed!  - Failed:     0, Passed:     5, Skipped:     0, Total:     5") == 0 ]] && [[ -f $T/arch/reviews/dotnet-test-api_X.Tests_X.Tests-UTC.log ]]'
+ok "dotnettest run: timeout → 2, nothing left" '[[ $(df "sleep 31" 2) == 2 ]] && grep -q "timed out after 2s" $T/df.out && ! /usr/bin/pgrep -f "^sleep 31$" >/dev/null'
+ok "dotnettest run: escaped process group still swept" '[[ $(df "/usr/bin/perl -e \"use POSIX; POSIX::setsid(); exec q(sleep), 42\" & echo Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1") == 0 ]] && /bin/sleep 1 && ! /usr/bin/pgrep -f "^sleep 42$" >/dev/null'
+print '{"is_laravel":true}' > $T/arch/input/profile.json
+ok "dotnettest: Laravel refused"            '[[ $(dt ACT-Training/Zzzt#9 api/X.Tests/X.Tests.csproj UTC) == 64 ]]'
+print '{"is_laravel":false}' > $T/arch/input/profile.json
+ok "guard: canonical dotnettest allowed"    '[[ $(g "$B/prwatch-dotnettest.sh ACT-Training/Vision#1 api/X.Tests/X.Tests.csproj UTC") == 0 ]]'
+ok "settings: dotnettest allowed + unsandboxed" 'jq -e ".permissions.allow|index(\"Bash($B/prwatch-dotnettest.sh *)\")" $C >/dev/null && jq -e ".sandbox.excludedCommands|index(\"$B/prwatch-dotnettest.sh *\")" $C >/dev/null'
+ok "angle: .NET only via prwatch-dotnettest" 'grep -q "Never run .dotnet test. yourself" $AN && grep -q "prwatch-dotnettest.sh <key>" $AN'
+print '{"is_laravel":true}' > $T/arch/input/profile.json
+ok "ngtest: Laravel refused"                '[[ $(ng ACT-Training/Zzzt#9 frontend) == 64 ]]'
+rm -rf $NBW
+ok "guard: canonical ngtest allowed"        '[[ $(g "$B/prwatch-ngtest.sh ACT-Training/Vision#1 frontend") == 0 ]]'
+ok "guard: ngtest with a glob denied"       '[[ $(g "$B/prwatch-ngtest.sh ACT-Training/Vision#1 frontend src/**") == 2 ]]'
+ok "settings: ngtest allowed + unsandboxed" 'jq -e ".permissions.allow|index(\"Bash($B/prwatch-ngtest.sh *)\")" $C >/dev/null && jq -e ".sandbox.excludedCommands|index(\"$B/prwatch-ngtest.sh *\")" $C >/dev/null'
+ok "settings: shims write-denied"           'jq -e ".sandbox.filesystem.denyWrite|index(\"$PRW/shims\")" $C >/dev/null && jq -e ".permissions.deny|index(\"Write(/$PRW/shims/**)\")" $C >/dev/null'
+e2=$(grep -n '^export PATH="$PRW/shims:$PATH"' "$L" 2>/dev/null | cut -d: -f1)
+ok "launcher: shims first on PATH before claude" '[[ -n $e2 && -n $c ]] && (( e2 < c ))'
+ok "angle: Angular only via prwatch-ngtest" 'grep -q "never run .ng test" $AN && grep -q "prwatch-ngtest.sh <key> frontend" $AN'
+
 # --- shared wording: the hook's sentinel and the hand-back rules must stay in the texts the model reads
-S7=$PRW/.claude/skills; SENT=$(grep -o 'PRWATCH HARNESS FAULT' $B/prwatch-agenthook.sh | head -1)
+SENT=$(grep -o 'PRWATCH HARNESS FAULT' $B/prwatch-agenthook.sh | head -1)
 ok "sentinel present in hook"              '[[ $SENT == "PRWATCH HARNESS FAULT" ]]'
 for f in $PRW/CLAUDE.md $S7/prwatch-review/SKILL.md $S7/prwatch-start/SKILL.md; do
 ok "sentinel in ${f#$PRW/}"                "grep -q '$SENT' $f"; done
@@ -209,7 +316,7 @@ ok "hand-back never a decision (inv. 1 + decide)" 'grep -q "hand-back" <(sed -n 
 # --- installed copy must match the repo (tests run the installed scripts)
 REPO=${PRWATCH_REPO:-/Users/jack/Herd/Shuffle/pr-watcher/watcher}
 if [[ -d $REPO ]]; then
-  drift=$(cd $REPO && for f in bin/*.sh config/settings.json CLAUDE.md .claude/skills/*/SKILL.md test/harness/run.sh; do cmp -s $f $PRW/$f || print $f; done)
+  drift=$(cd $REPO && for f in bin/*.sh shims/* config/settings.json CLAUDE.md BUILD-NOTES.md angles/*.md .claude/skills/*/SKILL.md test/harness/*.sh; do cmp -s $f $PRW/$f || print $f; done)
   ok "installed copy matches repo"         '[[ -z $drift ]]'; [[ -n $drift ]] && print "  drift: ${(f)drift}"
 else print "skip installed copy matches repo (no repo at $REPO; set PRWATCH_REPO)"; fi
 print "$((n-fail))/$n passed"; (( fail == 0 ))

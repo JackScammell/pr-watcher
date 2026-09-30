@@ -54,7 +54,9 @@ Rejected or downgraded findings go to `A/draft/verification.md` and under "Check
 Write with the Write tool:
 - `A/draft/review-body.md` — **line 1 exactly** `<!-- prwatch round=<k> sha=<sha7> -->`, then: plain-English summary; **Blockers**; **Should fix**; **What's good**; **Answers to the author's questions** (if any). No other HTML comments, no lines starting with `/`, no invisible characters. British English, Jack's voice, concise.
 - `A/draft/technical-detail.md` — `## Technical detail`: file:line evidence, what was run (and what could not run and why — for Laravel: "Tests: NOT run (Laravel — Flux Pro credentials)"), mutations and results, "Checked and not raised".
-- `A/draft/meta.json` — `{"recommendation":"request-changes|approve|comment","blockers":N,"should_fix":N,"summary_one_line":"…","questions_for_jack":[…],"round":k,"tests":{"ran":[…],"could_not_run":[…],"mutations":N},"is_laravel":bool}`.
+- `A/draft/meta.json` — `{"recommendation":"request-changes|approve|comment","blockers":N,"should_fix":N,"summary_one_line":"…","questions_for_jack":[…],"round":k,"tests":{"ran":[…],"built":[…],"could_not_run":[…],"mutations":N,"ci":"green|red|pending|none"},"is_laravel":bool}`.
+  - `tests.ran` lists only test runs that **ran** (see the testing-build angle): one entry per `TESTS-RAN:` line, e.g. `"dotnet test UnitTests TZ=UTC: 812 passed, 0 failed"`. Builds go in `built`, never in `ran`. `ci` comes from `input/checks.json`: `green` only if every check concluded successfully.
+  - **If `tests.ran` is empty and code changed (`profile.json` `has_code`), `recommendation` may not be `approve` unless `ci` is `green`.** Even then, the first `questions_for_jack` item must say no tests ran locally and that the approval rests on CI plus reading the code.
 
 **Disclosure check:** search both drafts for learner/staff ID shapes and for personal names taken from `comments.json`/`pr.json`; hits go into `questions_for_jack` — do not silently edit.
 

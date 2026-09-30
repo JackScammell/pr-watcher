@@ -16,6 +16,8 @@ Run once, at launch. Keep output short.
 6. **Blocked skills absent.** Confirm `code-review`, `review`, `security-review`, `schedule` and `loop` are not in your available skills list.
 7. **Foreground subagents.** Confirm your Bash tool has no `run_in_background` parameter. Then make one `Agent` call (`subagent_type: general-purpose`, `model: haiku`, `description: Foreground probe`, prompt `Reply with exactly PONG. Use no tools.`). In auto mode the reply normally arrives as a separate `[Subagent hand-back]` message, and the Agent result only says the report "was delivered to you as a message". That is expected: wait for that message before judging. **OK** when the call returned finished (no background-launch notice, no `PRWATCH HARNESS FAULT`) **and** the agent's report is `PONG`, either in the result or in its hand-back message. If the report is missing, withheld or flagged, say `PROBLEM: probe report not delivered (<what you saw>)`. If it says the agent was launched or is running in the background (the hook will also say `PRWATCH HARNESS FAULT`): `TaskStop` it ("not running" means it already finished — fine), say `PROBLEM: subagents run in the background (Claude Code update?) — do not use the watcher today`. The hook has already stopped today and notified Jack.
 
+8. **Angular test browser.** Check with the Glob tool that `/Users/jack/.cache/puppeteer/chrome-headless-shell/*/chrome-headless-shell-mac*/chrome-headless-shell` exists. If it's missing, say `PROBLEM: Angular tests can't run automatically (no chrome-headless-shell); Jack: npx @puppeteer/browsers install chrome-headless-shell`. This is a warning; the watcher still starts.
+
 If any of 1, 4, 6 or 7 fails, tell Jack and do not schedule anything.
 
 ## 2. Schedule (session cron, local time)

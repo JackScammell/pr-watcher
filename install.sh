@@ -6,8 +6,8 @@ SRC="${0:A:h}/watcher"
 DEST="$HOME/prwatch"
 
 # Files locked with `chflags uchg` (README "Lock") can't be overwritten — unlock first.
-if ls -lO "$DEST/bin" 2>/dev/null | grep -q uchg; then
-  echo "~/prwatch is locked. Unlock first:  chflags -R nouchg ~/prwatch/{bin,config,.claude,angles,CLAUDE.md}"
+if ls -lO "$DEST/bin" "$DEST/shims" 2>/dev/null | grep -q uchg; then
+  echo "~/prwatch is locked. Unlock first:  chflags -R nouchg ~/prwatch/{bin,shims,config,.claude,angles,CLAUDE.md}"
   exit 1
 fi
 
@@ -17,7 +17,7 @@ rsync -a --delete-after \
   --exclude state --exclude repos --exclude cache --exclude work --exclude gh-empty \
   --exclude 'test/archive' --exclude 'test/builder-evidence' --exclude 'test/state' \
   "$SRC/" "$DEST/"
-chmod +x "$DEST"/bin/*.sh "$DEST"/test/harness/*.sh "$DEST"/test/stub/osascript "$DEST"/test/sim2/*.sh 2>/dev/null || true
+chmod +x "$DEST"/bin/*.sh "$DEST"/shims/* "$DEST"/test/harness/*.sh "$DEST"/test/stub/osascript "$DEST"/test/sim2/*.sh 2>/dev/null || true
 
 # A launcher you have double-clicked gets macOS's com.apple.macl protection: it can't be overwritten, only replaced.
 L="$HOME/Desktop/PR Watcher.command"
@@ -30,4 +30,4 @@ fi
 chmod +x "$L"
 
 echo "Installed to $DEST and ~/Desktop/PR Watcher.command"
-echo "Re-lock when done testing:  chflags -R uchg ~/prwatch/{bin,config,.claude,angles,CLAUDE.md}"
+echo "Re-lock when done testing:  chflags -R uchg ~/prwatch/{bin,shims,config,.claude,angles,CLAUDE.md}"

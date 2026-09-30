@@ -13,8 +13,8 @@
     "MSBUILDDISABLENODEREUSE": "1",
     "DOTNET_CLI_USE_MSBUILD_SERVER": "0",
     "npm_config_cache": "/Users/jack/prwatch/cache/npm",
-    "CHROME_BIN": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"
+    "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+    "DOTNET_SYSTEM_NET_DISABLEIPV6": "1"
   },
   "permissions": {
     "defaultMode": "auto",
@@ -38,7 +38,9 @@
       "Skill(prwatch-review *)",
       "Skill(prwatch-decide *)",
       "Skill(prwatch-eod)",
-      "TaskStop"
+      "TaskStop",
+      "Bash(/Users/jack/prwatch/bin/prwatch-ngtest.sh *)",
+      "Bash(/Users/jack/prwatch/bin/prwatch-dotnettest.sh *)"
     ],
     "ask": [
       "Bash(/Users/jack/prwatch/bin/prwatch-post.sh *)",
@@ -98,7 +100,9 @@
       "Skill(loop)",
       "Skill(loop *)",
       "Read(~/.composer/**)",
-      "Read(~/Documents/GitHub/**)"
+      "Read(~/Documents/GitHub/**)",
+      "Edit(//Users/jack/prwatch/shims/**)",
+      "Write(//Users/jack/prwatch/shims/**)"
     ]
   },
   "sandbox": {
@@ -113,7 +117,9 @@
       "/Users/jack/prwatch/bin/prwatch-notify.sh *",
       "/Users/jack/prwatch/bin/prwatch-cleanup.sh *",
       "/Users/jack/prwatch/bin/prwatch-post.sh *",
-      "/Users/jack/prwatch/bin/prwatch-buildrun.sh *"
+      "/Users/jack/prwatch/bin/prwatch-buildrun.sh *",
+      "/Users/jack/prwatch/bin/prwatch-ngtest.sh *",
+      "/Users/jack/prwatch/bin/prwatch-dotnettest.sh *"
     ],
     "network": {
       "strictAllowlist": true,
@@ -128,7 +134,8 @@
         "/Users/jack/prwatch/angles",
         "/Users/jack/prwatch/CLAUDE.md",
         "/Users/jack/prwatch/state",
-        "/Users/jack/prwatch/repos"
+        "/Users/jack/prwatch/repos",
+        "/Users/jack/prwatch/shims"
       ]
     },
     "credentials": {

@@ -85,3 +85,21 @@ See the final report. Raw outputs: `test/t2-prep.out`, `test/state/notify.log`, 
 - Full design, the council rounds and the evidence are in `docs/fix-background-agents.md`. Tests: `test/harness/run.sh` (113/113, mutation-checked), plus `test/harness/live-check.sh` against real Claude Code. Run the live check after every Claude Code update.
 - The hook writes `state/harness/` and `state/stopped-*` directly: it is harness-run code like the `touch state/activity` hooks, not the model. That is deliberate, so a missing or mismatched session lock can't disable it.
 - Follow-up: auto mode delivers subagent reports as `[Subagent hand-back]` messages (`SubagentHandback`). Test 7 and review §4 now accept that. See "Auto-mode hand-back" in the doc.
+
+## Sandbox limits for PR tests (2026-09-29, Vision #1723; docs/fix-sandbox-tests.md)
+This is the single list of what the testing-build reviewer can and can't do inside Claude Code's sandbox, all reproduced under `config/settings.json`.
+- **.NET loopback.** `TcpClient()` is dual-stack, so testhost reaches 127.0.0.1 as `::ffff:127.0.0.1`, which the seatbelt rule `network-outbound (remote ip "localhost:*")` doesn't match (EACCES). `env.DOTNET_SYSTEM_NET_DISABLEIPV6=1` fixes it. It reaches only sandboxed Bash, because every `bin/` script re-execs with `env -i`. Result: `VisionApi.UnitTests` 8139/0/43 in both UTC and Europe/London. A test that genuinely needs IPv6 fails for this environmental reason.
+- **`mktemp` without a template** ignores `$TMPDIR` on this Mac and uses `/var/folders/…/T`, which is refused. `shims/mktemp` comes first on the session `PATH` (set by the launcher) and supplies a `$TMPDIR` template. Calls to `/usr/bin/mktemp` by absolute path are still refused.
+- **Unix-socket bind** under `$TMPDIR` is refused (EPERM).
+- **Domain-name `sysctl`** (`kern.nisdomainname`, `getdomainname()`) is refused, and settings can't change the fixed `sysctl` list. .NET's `CookieContainer` then fails to initialise, and every `WebApplicationFactory` test failed (IntegrationTests: 220 of 300). So .NET tests run through `bin/prwatch-dotnettest.sh`:
+  - it has an allow rule and is excluded from Claude's sandbox;
+  - it uses its own `sandbox-exec` profile: `sysctl` allowed; no `/Users` reads except the build copy, the NuGet cache and a private dir; writes only to the build copy, the private dir and `/private/tmp/.dotnet` (named-mutex shared memory, as in prep); loopback network only (testhost's port is random); clipboard and preferences blocked.
+
+  Result: IntegrationTests 243 passed / 0 failed / 57 skipped.
+- **Chrome can't run inside the sandbox.** It must register Mach services (`bootstrap_check_in`), and settings can only allow Mach *lookup*. So Angular runs through `bin/prwatch-ngtest.sh`:
+  - it has an allow rule and is excluded from Claude's sandbox;
+  - it uses its own `sandbox-exec` profile: no `/Users` reads except the build copy, node, chrome-headless-shell and a private dir; writes only to the build copy and the private dir; loopback network only;
+  - chrome-headless-shell runs with `--no-sandbox`, because its inner sandbox can't nest in sandbox-exec (Jack's decision). It depends on `~/.cache/puppeteer/chrome-headless-shell`.
+
+  Result on #1742: 3749/3749 SUCCESS in 26 s.
+- **Real local services.** Test projects that would connect to a real local DB, Redis or queue aren't run (Jack's decision). In-memory databases and WebApplicationFactory are fine.

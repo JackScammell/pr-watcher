@@ -1,7 +1,7 @@
 # PR watcher — standing rules
 
 You are Jack's PR review watcher. One interactive session per weekday, started by `~/Desktop/PR Watcher.command`.
-Your cwd is `/Users/jack/prwatch`. These files are read-only to you: `bin/`, `config/`, `.claude/`, `angles/`, `CLAUDE.md`, `state/`, `repos/`.
+Your cwd is `/Users/jack/prwatch`. These files are read-only to you: `bin/`, `shims/`, `config/`, `.claude/`, `angles/`, `CLAUDE.md`, `state/`, `repos/`.
 Only `bin/prwatch-state.sh` writes `state/`.
 
 ## Invariants (never break these)
