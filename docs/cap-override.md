@@ -66,8 +66,10 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
      kills PR processes and cleans up the worktrees first, and locks only for its final requeue and refund. It
      archives its fault markers only after that write succeeds. A busy lock (75) is re-run by the review skill
      (up to twice). A failed write (70) also keeps the markers, but the skill stops and tells Jack. The hook has
-     already stopped the day. Tomorrow the tick requeues the PR as `orphaned_requeue` (one attempt), and the
-     sweep archives the old markers, as in `docs/fix-background-agents.md`.
+     already stopped the day. On this path today's slot is **not** refunded. If `state.json` was only
+     unwritable, tomorrow's tick requeues the PR as `orphaned_requeue`, which charges one attempt, and the sweep
+     archives the old markers, as in `docs/fix-background-agents.md`. If it is corrupt, the tick instead stops
+     with `state_unreadable` (point 6) until it is repaired.
    - Without the lock, 10 parallel `daily-inc` calls left `state.json` **empty** (0 bytes) in 3 runs out of 3.
      With it, exactly 6 were counted and the file stayed valid.
    - A writer waits up to 10 seconds, then exits 75 ("state busy").
@@ -84,7 +86,7 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
 | 5 | state.sh | this window no longer holds the session lock | prep → 25 |
 | 64 | state.sh | bad argument, or `cap` without a valid request; `harness-abort`: PR not `reviewing` | the hook tells Jack "not changed (…)"; `harness-abort` keeps its markers, so the session stays locked by design (review §4: relaunch tomorrow) |
 | 65 | state.sh `daily-inc` | today's cap is used up | prep → 24 |
-| 70 | state.sh `today` / `daily-inc` / `harness-abort` | `state.json` empty, corrupt or not writable | prep → 25; tick → `error state_unreadable`; `harness-abort` keeps its markers; not retried automatically (the skill stops and tells Jack) |
+| 70 | state.sh `today` / `daily-inc` / `harness-abort` | `state.json` empty, corrupt or not writable | prep → 25; tick → `error state_unreadable`; `harness-abort` keeps its markers, no refund; not retried automatically (the skill stops and tells Jack) |
 | 75 | state.sh | lock still held after 10 s | prep → 26; `harness-abort` keeps its markers and the review skill runs it again |
 | 20–22, 64 | prep | clone, base lookup or fetch failed; bad arguments | review: `failed`, attempt +1 (unchanged) |
 | 23 | prep | head moved | review: `queued` (unchanged) |

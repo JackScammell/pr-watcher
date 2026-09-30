@@ -27,7 +27,7 @@ unlock() { zsystem flock -u $lfd; }
 [[ ${1:-} == (get|stop-today|harness-abort) ]] || lock
 STATUSES='(queued|reviewing|ready|asking|awaiting_decision|posted|skipped|failed|draft_seen|closed|withdrawn|go_ahead_pending|go_ahead_declined)'
 okkey() { [[ $1 == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## ]] || { print "bad key"; exit 64; } }
-write() { jq "$@" $F > $F.tmp && mv $F.tmp $F; }     # the harness forces a failed write via the .tmp name
+write() { jq "$@" $F > $F.tmp && mv $F.tmp $F; }     # run.sh "failed write → 70" relies on the .tmp name
 now=$(date -Iseconds)
 case ${1:-} in
   set) okkey ${2:-}; key=$2; stt=${3:-}; [[ $stt == ${~STATUSES} ]] || { print "bad status"; exit 64; }; shift 3
