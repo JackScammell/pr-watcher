@@ -433,6 +433,12 @@ reset; : > $T/state.json
 ok "tick: unreadable state → error, Jack notified" '[[ $(tk "[.status,.kind]") == "[\"error\",\"state_unreadable\"]" ]] && grep -q "error state :: The watcher can.t read its state file" $T/notify.log'
 reset; PRWATCH_NOW=${WD}T10:00 $SS stop-today
 ok "stop-today: seen by the tick on its (test) day" '[[ $(tk .status) == "\"stopped_for_today\"" && -f $T/stopped-$today ]]'
+# a failed harness-abort write, then the next session: its first real tick requeues the stuck PR with one attempt
+reset; review; post agent-async.json; post taskstop-ok.json; mkdir $T/state.json.tmp
+$SS harness-abort ACT-Training/Vision#1 >/dev/null 2>&1; rmdir $T/state.json.tmp
+print '{"session_id":"sid-B","pid":1}' > $T/session.lock                   # tomorrow: a new window
+tk >/dev/null; r=$(PRWATCH_SESSION_ID=sid-B PRWATCH_STUB_BIN=$T/stub PRWATCH_ONLY_PR=ACT-Training/Vision#1 PRWATCH_NOW=${WD}T10:00 $B/prwatch-tick.sh | jq -r ".items[0].reason")
+ok "failed write, next session: tick requeues it (orphaned_requeue, attempt +1)" '[[ $r == orphaned_requeue && $(st ACT-Training/Vision#1 status) == queued && $(st ACT-Training/Vision#1 attempts) == 2 ]]'
 # scheduling gate: a scheduled prompt could look like Jack's typing, so only the two real jobs may exist
 sg() { jq -nc --arg t "$1" --arg c "${2:-}" --arg p "${3:-}" --argjson r ${4:-null} '{tool_name:$t,tool_input:({cron:$c,prompt:$p}+(if $r==null then {} else {recurring:$r} end))}' | $PH sched 2>/dev/null; print $?; }
 ok "sched gate: tick job allowed"           '[[ $(sg CronCreate "*/15 8-15 * * 1-5" /prwatch-tick) == 0 && $(sg CronCreate "*/15 8-15 * * 1-5" /prwatch-tick true) == 0 ]]'

@@ -67,8 +67,11 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
      archives its fault markers only after that write succeeds. A busy lock (75) is re-run by the review skill
      (up to twice). A failed write (70) also keeps the markers, but the skill stops and tells Jack. The hook has
      already stopped the day. On this path today's slot is **not** refunded. If `state.json` was only
-     unwritable, tomorrow's tick requeues the PR as `orphaned_requeue`, which charges one attempt, and the sweep
-     archives the old markers, as in `docs/fix-background-agents.md`. If it is corrupt, the tick instead stops
+     unwritable, tomorrow's tick treats the PR like any orphaned review, and the sweep archives the old markers, as
+     in `docs/fix-background-agents.md`. The PR is either:
+     - requeued as `orphaned_requeue`, which charges one attempt (harness-tested);
+     - sent to `needs_jack` after 3 attempts;
+     - or, for a very large PR with no go-ahead, turned into the go-ahead question. If it is corrupt, the tick instead stops
      with `state_unreadable` (point 6) until it is repaired.
    - Without the lock, 10 parallel `daily-inc` calls left `state.json` **empty** (0 bytes) in 3 runs out of 3.
      With it, exactly 6 were counted and the file stayed valid.
@@ -78,7 +81,8 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
    - Prep then fails visibly (exit 25, and after 3 attempts Jack is asked).
    - The tick stops with `error state_unreadable` and a notification.
 
-`harness-abort` still refunds the slot it took, and the refund never touches the cap.
+When its write succeeds, `harness-abort` still refunds the slot it took (not on exit 70; see point 5), and the
+refund never touches the cap.
 
 ## Exit codes
 | Code | From | Meaning | What happens |
