@@ -413,13 +413,14 @@ ok "prep: unreadable state → 25 (a visible failure)" '(( rc == 25 )) && [[ $ou
 reset; out=$(PRWATCH_SESSION_ID= pp); rc=$?
 ok "prep: test mode, no session (T2) → not counted" '(( rc == 20 )) && [[ $(used) == 0 && -e $T/archive ]]'
 # tick reports the cap (dry run, stub gh, fixed weekday)
-tk() { mkdir -p $T/stub; ln -sf $PRW/test/stub/osascript $T/stub/osascript
+mkstub() { mkdir -p $T/stub; ln -sf $PRW/test/stub/osascript $T/stub/osascript   # stub gh: every PR is open at sha abc, 0 lines
   cat > $T/stub/gh <<'EOF'
 #!/bin/zsh
 [[ "$1 $2" == "pr view" ]] && print '{"headRefOid":"abc","isDraft":false,"state":"OPEN","title":"t","author":{"login":"x"},"files":[]}'
 exit 0
 EOF
-  chmod +x $T/stub/gh
+  chmod +x $T/stub/gh; }
+tk() { mkstub
   PRWATCH_STUB_BIN=$T/stub PRWATCH_ONLY_PR=ACT-Training/Zzzt#9 PRWATCH_NOW=${WD}T10:00 $B/prwatch-tick.sh --dry-run | jq -c "${1:-[.cap,.cap_default,.councils_today,.cap_left,.cap_max]}"; }
 reset
 ok "tick: default cap"                      '[[ $(tk) == "[$CD,$CD,0,$CD,$CM]" ]]'
@@ -435,9 +436,11 @@ reset; PRWATCH_NOW=${WD}T10:00 $SS stop-today
 ok "stop-today: seen by the tick on its (test) day" '[[ $(tk .status) == "\"stopped_for_today\"" && -f $T/stopped-$today ]]'
 # a failed harness-abort write, then the next session: its first real tick requeues the stuck PR with one attempt
 reset; review; post agent-async.json; post taskstop-ok.json; mkdir $T/state.json.tmp
-$SS harness-abort ACT-Training/Vision#1 >/dev/null 2>&1; rmdir $T/state.json.tmp
-print '{"session_id":"sid-B","pid":1}' > $T/session.lock                   # tomorrow: a new window
-tk >/dev/null; r=$(PRWATCH_SESSION_ID=sid-B PRWATCH_STUB_BIN=$T/stub PRWATCH_ONLY_PR=ACT-Training/Vision#1 PRWATCH_NOW=${WD}T10:00 $B/prwatch-tick.sh | jq -r ".items[0].reason")
+$SS harness-abort ACT-Training/Vision#1 >/dev/null 2>&1; rc=$?; rmdir $T/state.json.tmp
+print '{"session_id":"sid-B","pid":1}' > $T/session.lock; rm -f $T/stopped-*   # tomorrow: a new window, a new day
+mkstub
+ok "failed write (70) leaves the PR reviewing with 1 attempt" '(( rc == 70 )) && [[ $(st ACT-Training/Vision#1 status) == reviewing && $(st ACT-Training/Vision#1 attempts) == 1 ]]'
+r=$(PRWATCH_SESSION_ID=sid-B PRWATCH_STUB_BIN=$T/stub PRWATCH_ONLY_PR=ACT-Training/Vision#1 PRWATCH_NOW=${WD}T10:00 $B/prwatch-tick.sh | jq -r ".items[0].reason")
 ok "failed write, next session: tick requeues it (orphaned_requeue, attempt +1)" '[[ $r == orphaned_requeue && $(st ACT-Training/Vision#1 status) == queued && $(st ACT-Training/Vision#1 attempts) == 2 ]]'
 # scheduling gate: a scheduled prompt could look like Jack's typing, so only the two real jobs may exist
 sg() { jq -nc --arg t "$1" --arg c "${2:-}" --arg p "${3:-}" --argjson r ${4:-null} '{tool_name:$t,tool_input:({cron:$c,prompt:$p}+(if $r==null then {} else {recurring:$r} end))}' | $PH sched 2>/dev/null; print $?; }

@@ -66,13 +66,13 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
      kills PR processes and cleans up the worktrees first, and locks only for its final requeue and refund. It
      archives its fault markers only after that write succeeds. A busy lock (75) is re-run by the review skill
      (up to twice). A failed write (70) also keeps the markers, but the skill stops and tells Jack. The hook has
-     already stopped the day. On this path today's slot is **not** refunded. If `state.json` was only
-     unwritable, tomorrow's tick treats the PR like any orphaned review, and the sweep archives the old markers, as
-     in `docs/fix-background-agents.md`. The PR is either:
+     already stopped the day. On this path today's slot is **not** refunded. If `state.json` is corrupt,
+     tomorrow's tick stops with `state_unreadable` (point 6) until it is repaired. If it was only unwritable,
+     tomorrow's tick treats the PR like any orphaned review, and the sweep archives the old markers, as in
+     `docs/fix-background-agents.md`. The PR is then:
      - requeued as `orphaned_requeue`, which charges one attempt (harness-tested);
-     - sent to `needs_jack` after 3 attempts;
-     - or, for a very large PR with no go-ahead, turned into the go-ahead question. If it is corrupt, the tick instead stops
-     with `state_unreadable` (point 6) until it is repaired.
+     - sent to `needs_jack` after 3 attempts; or
+     - for a very large PR with no go-ahead, turned into the go-ahead question.
    - Without the lock, 10 parallel `daily-inc` calls left `state.json` **empty** (0 bytes) in 3 runs out of 3.
      With it, exactly 6 were counted and the file stayed valid.
    - A writer waits up to 10 seconds, then exits 75 ("state busy").
