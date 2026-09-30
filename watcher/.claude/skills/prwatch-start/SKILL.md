@@ -31,8 +31,8 @@ A hook allows only these two jobs, exactly as written (recurring), and refuses e
 2. Run `/prwatch-tick` now (it is a no-op outside the window).
 
 ## 4. Banner
+<!-- The cap numbers in the Commands line are checked against prwatch-state.sh by test/harness/run.sh. -->
 Print:
 - "Checking every 15 min, Mon–Fri. New reviews start 08:00–15:30; decisions until 16:00."
-<!-- The cap numbers below are checked against prwatch-state.sh by test/harness/run.sh. -->
 - "Commands: `d` (drafts now), `status`, `pause 60`, `cap 8` (allow up to 8 reviews today; default 6, max 12), `stop`. Esc stops a running review (it resumes at the next check)."
 - "At permission prompts choose Yes — never 'Yes, and don't ask again'."

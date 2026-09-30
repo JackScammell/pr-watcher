@@ -94,7 +94,8 @@ case ${1:-} in
        # requeue + refund under the lock; markers are archived only after that, so a busy lock (75) can simply be retried
        lock; [[ "$(jq -r --arg k $key '.prs[$k].status // ""' $F)" == reviewing ]] || { print "not reviewing"; exit 64; }
        write --arg k $key --arg t $now --arg d $td \
-         '.prs[$k] = (.prs[$k] | .status="queued" | .updated_at=$t | del(.step)) | .daily[$d] = ([((.daily[$d] // 0) - 1), 0] | max)'
+         '.prs[$k] = (.prs[$k] | .status="queued" | .updated_at=$t | del(.step)) | .daily[$d] = ([((.daily[$d] // 0) - 1), 0] | max)' \
+         || { print "state write failed"; exit 70; }
        mkdir -p $H/done; mv $mine $H/done/
        touch $S/stopped-$td $S/stopped-$(date +%F)
        print -r -- "{\"t\":\"$now\",\"key\":\"$key\",\"status\":\"queued\",\"harness_abort\":true}" >> $S/events.jsonl ;;

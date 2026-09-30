@@ -323,6 +323,7 @@ req()  { mkdir -p $T/cap; jq -nc --arg s ${2:-sid-A} --arg n $1 '{session:$s,n:$
 setcap() { $SS cap $1 >/dev/null 2>&1; }                                    # → exit code
 sj()   { jq --arg d ${2:-$today} "$1" $T/state.json > $T/s && mv $T/s $T/state.json; }   # edit state; $d = the day
 CD=$(grep -o "CAP_DEFAULT=[0-9]*" $B/prwatch-state.sh); CD=${CD#*=}; CM=$(grep -o "CAP_MAX=[0-9]*" $B/prwatch-state.sh); CM=${CM#*=}   # the only definition
+ok "cap constants read; fixtures fit the range" '[[ $CD == <-> && $CM == <-> ]] && (( CD + 2 <= CM && CM >= 10 ))'   # cap 8/10 fixtures below
 hold() { : >> $T/state.lock; zsh -c "zmodload zsh/system; zsystem flock $T/state.lock; sleep $1" & pids+=($!); /bin/sleep 0.3; }   # someone else holds the lock
 reset; out=$(ph "cap 8")
 ok "prompthook: cap 8 → today's cap 8"      '[[ $(ovr) == 8 ]]'
@@ -390,6 +391,10 @@ ok "harness-abort refund keeps today's cap" '[[ $(used) == 0 && $(ovr) == 8 ]]'
 reset; review; post agent-async.json; post taskstop-ok.json; hold 2
 ok "harness-abort: busy lock → 75, markers kept for a retry" '(PRWATCH_LOCK_WAIT=1 $SS harness-abort ACT-Training/Vision#1 >/dev/null; (( $? == 75 ))) && [[ -f $T/harness/a111.stopped && ! -e $T/harness/done/a111.stopped && $(st ACT-Training/Vision#1 status) == reviewing ]]'
 ok "harness-abort: retry succeeds once the lock is free" 'abort ACT-Training/Vision#1 && [[ -f $T/harness/done/a111.stopped && $(st ACT-Training/Vision#1 status) == queued && $(used) == 0 ]]'
+reset; review; post agent-async.json; post taskstop-ok.json; mkdir $T/state.json.tmp        # the requeue write can't happen
+ok "harness-abort: failed write → 70, markers kept for a retry" '($SS harness-abort ACT-Training/Vision#1 >/dev/null 2>&1; (( $? == 70 ))) && [[ -f $T/harness/a111.stopped && $(st ACT-Training/Vision#1 status) == reviewing ]]'
+rmdir $T/state.json.tmp
+ok "harness-abort: retry after the failed write succeeds" 'abort ACT-Training/Vision#1 && [[ $(st ACT-Training/Vision#1 status) == queued && -f $T/harness/done/a111.stopped ]]'
 reset; review; post agent-async.json
 ok "live marker: state.sh cap denied"       'denied Bash "$SS cap 8"'
 # prep takes the slot before doing anything (no archive, no network); a failing clone source keeps the rest local
@@ -452,6 +457,7 @@ ok "one definition of the default"          '! grep -q "CAP_DEFAULT=" $B/prwatch
 ok "prose numbers match (launcher, start banner, README)" 'grep -q "normally $CD, at most $CM" "$L" && grep -q "default $CD, max $CM" $S7/prwatch-start/SKILL.md && grep -q "instead of $CD (1 to $CM" $PRW/README.md'
 ok "model-facing text reads the cap, no literals" '! grep -Eq "or $CD|otherwise $CD|up to $CM|1 to $CM" $PRW/CLAUDE.md $S7/prwatch-tick/SKILL.md $S7/prwatch-eod/SKILL.md $S7/prwatch-review/SKILL.md'
 ok "tick skill: cap from the JSON, exits 24/26" 'grep -q "<cap_max>" $S7/prwatch-tick/SKILL.md && grep -q "exit 24" $S7/prwatch-tick/SKILL.md && grep -q "exit 26" $S7/prwatch-tick/SKILL.md'
+ok "review skill: harness-abort retried when state busy" 'grep -q "for \"state busy\", run it again" $S7/prwatch-review/SKILL.md'
 ok "review skill: prep counts; 24/26 requeue, 25 fails" '! grep -q "daily-inc" $S7/prwatch-review/SKILL.md && grep -q "Exit 24" $S7/prwatch-review/SKILL.md && grep -q "exit 26" $S7/prwatch-review/SKILL.md && grep -q "exit 25" $S7/prwatch-review/SKILL.md'
 ok "status and eod use state.sh today"      'grep -q "prwatch-state.sh today" $PRW/CLAUDE.md && grep -q "prwatch-state.sh today" $S7/prwatch-eod/SKILL.md'
 ok "CLAUDE.md: cap N row, model never runs cap" 'grep -q "^| .cap N. |" $PRW/CLAUDE.md && grep -q "PRWATCH CAP:" $PRW/CLAUDE.md && grep -q "prwatch-state.sh cap. yourself" $PRW/CLAUDE.md'

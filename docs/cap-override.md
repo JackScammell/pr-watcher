@@ -64,7 +64,8 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
      `daily-inc` holds it across its check and increment.
    - It is released before slow side effects: notifications (osascript) after `set` and `cap`. `harness-abort`
      kills PR processes and cleans up the worktrees first, and locks only for its final requeue and refund. It
-     archives its fault markers after that write, so a busy lock (75) can simply be retried.
+     archives its fault markers only after that write succeeds, so a busy lock (75) or a failed write (70) is
+     retried (the review skill re-runs it on "state busy").
    - Without the lock, 10 parallel `daily-inc` calls left `state.json` **empty** (0 bytes) in 3 runs out of 3.
      With it, exactly 6 were counted and the file stayed valid.
    - A writer waits up to 10 seconds, then exits 75 ("state busy").
@@ -79,15 +80,15 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
 | Code | From | Meaning | What happens |
 |---|---|---|---|
 | 5 | state.sh | this window no longer holds the session lock | prep → 25 |
-| 64 | state.sh | bad argument, or `cap` without a valid request | the hook tells Jack "not changed (…)" |
+| 64 | state.sh | bad argument, or `cap` without a valid request; `harness-abort`: PR not `reviewing` | the hook tells Jack "not changed (…)"; `harness-abort` keeps its markers, so the session stays locked by design (review §4: relaunch tomorrow) |
 | 65 | state.sh `daily-inc` | today's cap is used up | prep → 24 |
-| 70 | state.sh `today` / `daily-inc` | `state.json` empty or corrupt | prep → 25; tick → `error state_unreadable` |
-| 75 | state.sh | lock still held after 10 s | prep → 26 |
+| 70 | state.sh `today` / `daily-inc` / `harness-abort` | `state.json` empty, corrupt or not writable | prep → 25; tick → `error state_unreadable`; `harness-abort` keeps its markers for a retry |
+| 75 | state.sh | lock still held after 10 s | prep → 26; `harness-abort` keeps its markers and the review skill runs it again |
+| 20–22, 64 | prep | clone, base lookup or fetch failed; bad arguments | review: `failed`, attempt +1 (unchanged) |
 | 23 | prep | head moved | review: `queued` (unchanged) |
 | 24 | prep | cap used up; nothing done | review: `queued`, no attempt; tick starts no more this turn |
 | 25 | prep | the count failed (5 or 70) | review: `failed`, attempt +1 (visible) |
 | 26 | prep | state busy; nothing done | review: `queued`, no attempt; tick starts no more this turn |
-| 20–22, 64 | prep | clone, base lookup or fetch failed; bad arguments | review: `failed`, attempt +1 (unchanged) |
 
 ## Checked
 - `.prompt` is the UserPromptSubmit input field, and plain stdout with exit 0 is added to the model's context
@@ -103,7 +104,7 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
 - **Not checked:** whether a prompt typed during a review triggers the hook when typed or when delivered. Either way
   the hook applies the cap when it runs.
 
-## Deferred (older problems, not made worse)
+## Deferred and deliberate limits
 - A slot is spent when prep fails after counting (head moved, clone error). `daily-inc` ran before prep before this
   change too. A refund would need a new "un-count" subcommand, and the model could call that to lift its own limit.
   So it is left out deliberately.
@@ -122,18 +123,18 @@ reviewed by the full Parliament panel (round 1 notes applied in round 2).
 - the hook: prompts it accepts and ignores (including whitespace-only, non-string and garbage input), exit 0 with
   no output for each, the out-of-range messages, and the wrong-window refusal;
 - every refusal in `cap`, each with its exact exit code: no request, other session's request, other session's
-  caller, wrong N, 2 minutes old (a 30-second-old request is accepted), reused, over 12, bad argument;
+  caller, wrong N, 2 minutes old (a 30-second-old request is accepted), reused, above the max, bad argument;
 - the `cap_refused` event, and notification on every change;
-- `daily-inc` at the default and raised caps, another day's cap ignored, 10 parallel calls with a valid file
-  afterwards, lock held elsewhere (75), a short wait, and empty or corrupt state (70);
+- `daily-inc` at the default and raised caps, another day's cap ignored, parallel calls (default + 4) with a valid
+  file afterwards, lock held elsewhere (75), a short wait, and empty or corrupt state (70);
 - `today`, and `today` without a session;
-- `harness-abort` doing its cleanup before waiting for the lock;
+- `harness-abort`: a busy lock (75) and a failed write (70) both keep the markers, and a retry then succeeds;
 - prep's exits 24, 25 (other session, unreadable state) and 26, counting first, and T2 with no session;
 - tick JSON (`cap`, `cap_default`, `cap_max`, `councils_today`, `cap_left`), the unreadable-state error, and
   `stop-today` on the test day;
 - the scheduling gate, including the two jobs parsed from the start skill;
-- settings, the guard, one definition of the numbers, the prose matching them, and no literal cap in model-facing
-  text.
+- settings, the guard, one definition of the numbers (read and range-checked before any cap test), the prose
+  matching them, and no literal cap in model-facing text. Test numbers derive from `CAP_DEFAULT` and `CAP_MAX`.
 
 In a scratch `HOME`, every new check passes except the two settings checks, which need the real
 `/Users/jack/prwatch` paths. Those pass against the real paths. The only other failures are the same 23 as on
