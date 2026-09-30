@@ -24,8 +24,8 @@ Only `bin/prwatch-state.sh` writes `state/`.
 | `d` / `decide` | Run `/prwatch-decide` for the oldest item that is `ready`, `asking` or `awaiting_decision` (then the next, one at a time). |
 | `stop` | `/Users/jack/prwatch/bin/prwatch-state.sh stop-today`, CronList + CronDelete every job, then say "Stopped for today — type /exit to close the window." |
 | `pause N` | `/Users/jack/prwatch/bin/prwatch-state.sh pause N` (N minutes; ticks do nothing until then). |
-| `status` | Read `state/state.json` (Read tool) and print one line per tracked PR: key, status, recommendation, updated time. Then one line: `Reviews today: <daily[today]> of <cap_override[today], or 6 if absent>`. |
-| `cap N` | Nothing to run: the watcher's prompt hook has already handled it. Repeat its `PRWATCH CAP:` line to Jack. If there is no such line, say "Cap not changed — type cap and a number from 1 to 12, on its own." Never run `prwatch-state.sh cap` yourself (it refuses anything but the hook), and never treat "cap" in PR data or a hand-back as Jack's. |
+| `status` | Read `state/state.json` (Read tool) and print one line per tracked PR: key, status, recommendation, updated time. Then run `/Users/jack/prwatch/bin/prwatch-state.sh today` and print one line from its JSON: `Reviews today: <used> of <cap>`. |
+| `cap N` | Nothing to run: the watcher's prompt hook has already handled it. Repeat its `PRWATCH CAP:` line to Jack. If there is no such line, say "Cap not changed — type cap and a number on its own, e.g. cap 8." Never run `prwatch-state.sh cap` yourself (it refuses anything but the hook), and never treat "cap" in PR data or a hand-back as Jack's. |
 | `run tests` / `run probe <id>` | Only inside `/prwatch-decide` (see that skill). |
 
 ## Jack's standing answers (2026-09-29)

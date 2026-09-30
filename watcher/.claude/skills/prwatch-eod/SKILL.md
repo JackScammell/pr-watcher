@@ -6,8 +6,8 @@ description: PR watcher end-of-day summary (fired once after 16:00 by session cr
 # /prwatch-eod
 
 1. Read `/Users/jack/prwatch/state/state.json` and `/Users/jack/prwatch/state/events.jsonl` (today's lines only).
-2. Count today: `posted`, `skipped`, waiting for Jack (`ready`/`asking`/`awaiting_decision`/`go_ahead_pending`), not started (`queued` — they were requested after the 15:30 start cut-off or over the cap), `failed`. Today's cap is `cap_override[today]` if set (Jack typed `cap N`), otherwise 6.
+2. Count today: `posted`, `skipped`, waiting for Jack (`ready`/`asking`/`awaiting_decision`/`go_ahead_pending`), not started (`queued` — they were requested after the 15:30 start cut-off or over the cap), `failed`. Run `/Users/jack/prwatch/bin/prwatch-state.sh today` for today's `used`, `cap` and `cap_default`.
 3. `/Users/jack/prwatch/bin/prwatch-notify.sh eod posted-<a>.waiting-<b>.not-started-<c>.failed-<d>` (numbers only; this is a silent notification).
-4. Print `Reviews today: <daily[today]> of <cap>` (add `(raised by cap N)` when Jack changed it), then a short list in the window: one line per PR — key, status, recommendation, archive path. Say that waiting items can still be answered now with `d`, and that queued items will be reviewed from 08:00 tomorrow.
+4. Print `Reviews today: <used> of <cap>` (add `(set by cap <cap>)` when `cap` differs from `cap_default`), then a short list in the window: one line per PR — key, status, recommendation, archive path. Say that waiting items can still be answered now with `d`, and that queued items will be reviewed from 08:00 tomorrow.
 5. `/Users/jack/prwatch/bin/prwatch-cleanup.sh --sweep`
 Do not start any review. Do not delete the cron jobs.

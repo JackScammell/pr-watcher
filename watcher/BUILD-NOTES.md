@@ -106,7 +106,8 @@ This is the single list of what the testing-build reviewer can and can't do insi
 
 ## Daily cap override (2026-09-30; docs/cap-override.md)
 - Jack types `cap N` (1–12) to change today's council cap; it lapses overnight. Only `bin/prwatch-prompthook.sh` (UserPromptSubmit) can set it: it writes `state/cap/request.json` and calls `prwatch-state.sh cap N`, which refuses without that fresh request. Like the agenthook markers, the request is written by harness-run code, never the model.
-- `prwatch-prep.sh` now takes the day's slot (`daily-inc`, exit 65 → prep exit 24) before anything else; the review skill no longer calls `daily-inc`. The model can no longer skip the count.
-- A PreToolUse `CronCreate` hook allows only the `/prwatch-tick` and `/prwatch-eod` jobs, so a scheduled prompt can't pose as Jack.
-- `prwatch-state.sh` holds a `zsystem flock` for every write. Without it, parallel writes emptied `state.json` in testing.
-- In test mode `prwatch-state.sh` honours `PRWATCH_NOW` for `daily`/`cap_override` dates, matching `prwatch-tick.sh`. Before this, T6-style runs counted against the real date while the tick read the fake one.
+- `prwatch-prep.sh` now takes the day's slot (`daily-inc`, exit 65 → prep exit 24) before anything else; the review skill no longer calls `daily-inc`, so a council the skill starts is always counted. Exit codes: see the table in the doc.
+- A PreToolUse hook on scheduling tools (`.*(Cron|Schedule|Wakeup|Trigger).*`) allows only the `/prwatch-tick` and `/prwatch-eod` CronCreate jobs plus CronList/CronDelete, and `ScheduleWakeup` is denied, so a scheduled prompt can't pose as Jack.
+- `prwatch-state.sh` takes a `zsystem flock` for every `state.json` write and releases it before notifications; `harness-abort` locks only for its final write. Without the lock, parallel writes emptied `state.json` in testing.
+- The cap numbers are defined once (`prwatch-state.sh`); `prwatch-state.sh today` (read-only, no session) gives today's used/cap/default/max to the tick, `status` and end of day. An unreadable `state.json` is exit 70, never "cap reached".
+- In test mode `prwatch-state.sh` honours `PRWATCH_NOW` for `daily`/`cap_override` dates and the stop file, matching `prwatch-tick.sh`. Before this, T6-style runs counted against the real date while the tick read the fake one. `stop-today` touches both the test day's and the real day's stop file (the launcher's watchdog uses the real date).

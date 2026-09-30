@@ -25,6 +25,7 @@ case $kind in
               launcher)      msg="PR Watcher could not start - see its Terminal window.";;
               harness)       msg="Reviewers ran in the background (Claude Code update?). Review stopped and the watcher is off for today - see the window.";;
               hookdrift)     msg="Claude Code changed how it reports subagents - the background-agent check may not work. Check before relying on the watcher.";;
+              state)         msg="The watcher can't read its state file (state/state.json) - no reviews will start. See the window.";;
               *)             msg="Problem: $(clean "$ref") - see the PR watcher window.";;
             esac ;;
   eod)      sub="End of day"; snd=""; msg=$(clean "$ref" 80) ;;

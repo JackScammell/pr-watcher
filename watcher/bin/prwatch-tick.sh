@@ -5,7 +5,6 @@
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob
 PRW=$HOME/prwatch; S=$PRW/state; NOW=""; ONLY=""; DRY=0; WONLY=0
-CAP_DEFAULT=6          # councils a day unless Jack typed "cap N" today; must match prwatch-state.sh (the harness checks)
 if [[ -n ${PRWATCH_TESTMODE:-} ]]; then
   S=${PRWATCH_STATE_DIR:-$PRW/test/state}; NOW=${PRWATCH_NOW:-}; ONLY=${PRWATCH_ONLY_PR:-}
   [[ -n ${PRWATCH_STUB_BIN:-} ]] && path=($PRWATCH_STUB_BIN $path)
@@ -29,6 +28,8 @@ else dow=$(date +%u); hm=$(date +%H%M); today=$(date +%F); fi
 if (( WONLY )); then (( 10#$hm < 1530 )) && out '{"status":"in_window"}'; out "{\"status\":\"start_closed\",\"hm\":\"$hm\"}"; fi
 [[ -f $S/stopped-$today ]] && out '{"status":"stopped_for_today"}'
 pu=$(jq -r '.paused_until // ""' $F); [[ -n $pu && $(date -Iseconds) < $pu ]] && out "{\"status\":\"paused\",\"until\":\"$pu\"}"
+# today's count and cap (default, or Jack's "cap N") from the state script, which defines them and prep enforces
+ct=$($ST today) || { $PRW/bin/prwatch-notify.sh error state; out '{"status":"error","kind":"state_unreadable"}'; }
 # 3. GitHub, with the real config
 export GH_CONFIG_DIR=$HOME/.config/gh
 gh auth status >/dev/null 2>&1 || { $PRW/bin/prwatch-notify.sh error gh_auth; out '{"status":"error","kind":"gh_auth"}'; }
@@ -90,8 +91,8 @@ if [[ -z $ONLY ]] && (( ! DRY )); then
     $ST set $k withdrawn withdrawn_from=$kst miss=0 >/dev/null; notices+=("\"$k no longer requested (withdrawn, merged or closed)\"")
   done
 fi
-used=$(jq -r --arg d $today '.daily[$d] // 0' $F)
-cap=$(jq -r --arg d $today --argjson c $CAP_DEFAULT '.cap_override[$d] // $c' $F)   # "cap N" (prwatch-prompthook.sh); prep enforces it
+ct=$($ST today) || { $PRW/bin/prwatch-notify.sh error state; out '{"status":"error","kind":"state_unreadable"}'; }   # after this tick's writes
 cs=$( (( 10#$hm < 1530 )) && print true || print false )      # may a NEW council start now? (last start 15:29)
-jq -nc --argjson i "[${(j:,:)items}]" --argjson c $used --argjson cap $cap --argjson cd $CAP_DEFAULT --arg hm $hm --argjson no "[${(j:,:)notices}]" --argjson cs $cs \
-  '{status:"ok",hm:$hm,can_start:$cs,councils_today:$c,cap:$cap,cap_default:$cd,cap_left:([$cap-$c,0]|max),items:$i,notices:$no}'
+jq -nc --argjson i "[${(j:,:)items}]" --argjson ct $ct --arg hm $hm --argjson no "[${(j:,:)notices}]" --argjson cs $cs \
+  '{status:"ok",hm:$hm,can_start:$cs,councils_today:$ct.used,cap:$ct.cap,cap_default:$ct.cap_default,cap_max:$ct.cap_max,
+    cap_left:([$ct.cap-$ct.used,0]|max),items:$i,notices:$no}'

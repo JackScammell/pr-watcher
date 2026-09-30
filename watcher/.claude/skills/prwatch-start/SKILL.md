@@ -24,7 +24,7 @@ If any of 1, 4, 6 or 7 fails, tell Jack and do not schedule anything.
 1. `CronList`. Delete any existing `/prwatch-tick` or `/prwatch-eod` jobs (avoid duplicates).
 2. `CronCreate` recurring `*/15 8-15 * * 1-5` with prompt `/prwatch-tick`.
 3. `CronCreate` recurring `3 16 * * 1-5` with prompt `/prwatch-eod`.
-A hook allows only these two jobs, exactly as written (recurring). If either `CronCreate` is refused, say `PROBLEM: could not schedule the checks (<hook message>)` and stop.
+A hook allows only these two jobs, exactly as written (recurring), and refuses every other way of scheduling a prompt. If either `CronCreate` is refused, say `PROBLEM: could not schedule the checks (<hook message>)` and stop.
 
 ## 3. Housekeeping and first tick
 1. `/Users/jack/prwatch/bin/prwatch-cleanup.sh --sweep`

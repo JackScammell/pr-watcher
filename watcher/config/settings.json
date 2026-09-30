@@ -60,6 +60,7 @@
       "WebFetch",
       "WebSearch",
       "RemoteTrigger",
+      "ScheduleWakeup",
       "Agent(isolation:remote)",
       "Edit(//Users/jack/prwatch/bin/**)",
       "Write(//Users/jack/prwatch/bin/**)",
@@ -198,11 +199,11 @@
         ]
       },
       {
-        "matcher": "CronCreate",
+        "matcher": ".*(Cron|Schedule|Wakeup|Trigger).*",
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jack/prwatch/bin/prwatch-prompthook.sh cron"
+            "command": "/Users/jack/prwatch/bin/prwatch-prompthook.sh sched"
           }
         ]
       }
