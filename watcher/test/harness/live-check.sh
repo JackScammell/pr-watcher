@@ -18,8 +18,8 @@ for c in "$HOME/Library/Application Support/Herd/config/nvm/versions/node/"*/bin
 T=$(mktemp -d /tmp/pwl.XXXXXX)
 trap '/usr/bin/pkill -f "^sleep $SLP\$" 2>/dev/null; rm -rf $T' EXIT
 export PRWATCH_TESTMODE=1 PRWATCH_STATE_DIR=$T/state PRWATCH_STUB_BIN=$PRW/test/stub PRWATCH_SESSION_ID=sid-live PRWATCH_PID=$$
-fresh() { rm -rf $T/state; mkdir -p $T/state; print '{"prs":{},"daily":{},"go_ahead":{}}' > $T/state/state.json
-  print '{"session_id":"sid-live","pid":1}' > $T/state/session.lock; }
+fresh() { rm -rf $T/state; mkdir -p $T/state; print '{"prs":{},"go_ahead":{},"repos":{}}' > $T/state/state.json
+  print "{\"session_id\":\"sid-live\",\"pid\":1,\"started_epoch\":$(date +%s)}" > $T/state/session.lock; }
 jq '{hooks:{PreToolUse:[.hooks.PreToolUse[]|select(.hooks[0].command|test("agenthook"))],
             PostToolUse:[.hooks.PostToolUse[]|select(.hooks[0].command|test("agenthook"))],
             SubagentStop:[.hooks.SubagentStop[]|select(.hooks[0].command|test("agenthook"))]}}' $PRW/config/settings.json > $T/hooks.json
@@ -33,7 +33,7 @@ print "claude: $("$CLAUDE" --version)"
 fresh; CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 run --permission-mode auto \
   'Make one Agent call (subagent_type general-purpose, model haiku, prompt "Reply with exactly PONG. Use no tools."). Then stop.'
 chk "A: foreground with the variable (status completed)" '[[ "$(res "select(.status!=null)|.status" | head -1)" == \"completed\" ]]'
-chk "A: no fault recorded, no leftover note"             '[[ -z $(print $T/state/harness/*.(marker|stopped|ended)) && ! -e $T/state/stopped-$(date +%F) ]]' \
+chk "A: no fault recorded, no leftover note"             '[[ -z $(print $T/state/harness/*.(marker|stopped|ended)) && ! -e $T/state/stopped-sid-live ]]' \
     "a leftover .ended means the foreground result no longer carries agentId"
 print "     A shape: $(res 'select(.status!=null)|{status,isAsync,handback,agentId}' | head -1)"
 
@@ -42,7 +42,7 @@ fresh; ( unset CLAUDE_CODE_DISABLE_BACKGROUND_TASKS; run --permission-mode bypas
 launch=$(res 'select(.status=="async_launched")|{s:.status,a:.isAsync,id:(.agentId|type)}' | head -1)
 stop=$(res 'select(.task_id!=null)|.message' | head -1)
 chk "B: background launch shape matches fixtures"  '[[ $launch == "{\"s\":\"async_launched\",\"a\":true,\"id\":\"string\"}" ]]'
-chk "B: hook recorded the fault (model-independent)" '[[ -n $(print $T/state/harness/*.(marker|stopped)) && -f $T/state/stopped-$(date +%F) ]]'
+chk "B: hook recorded the fault (model-independent)" '[[ -n $(print $T/state/harness/*.(marker|stopped)) && -f $T/state/stopped-sid-live ]]'
 if called TaskStop; then
   chk "B: TaskStop wording matches hook"           '[[ $stop == \"Successfully\ stopped\ task:* ]]'
   chk "B: hook marked the stopped agent"           '[[ -n $(print $T/state/harness/*.stopped) ]]'

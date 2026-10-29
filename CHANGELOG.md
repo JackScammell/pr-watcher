@@ -10,10 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Repository files: licence, code of conduct, security policy, contributing guide, changelog, issue and PR templates, Dependabot, editorconfig; the `check` workflow (syntax on Ubuntu, harness on macOS); the committed sim2 expected table; and `.gitignore` entries for Claude Code's per-repo worktrees and agent memory.
+- The 8-hour session window: the launcher records `started_epoch` in `session.lock`; `prwatch-tick.sh --window` is a pure read that reports `in_window`, `start_closed` or `session_over` (with `started`, `elapsed_min`, `starts_until`, `ends_at`); new reviews start only in the first 7½ hours and `prwatch-prep.sh` refuses with exit 27 after that. The constants and the clock helpers live in `watcher/bin/prwatch-common.zsh`.
+- `stop` and `pause N` are handled by the prompt hook with a one-use request file, so only Jack typing at the prompt can stop or pause a session; the model repeats the hook's `PRWATCH STOP:` / `PRWATCH PAUSE:` line.
+- `prwatch-state.sh check` (read-only state check) and `eod-done` (the session's posted / waiting / not started / failed counts, once per session).
+- The session summary runs from the tick once the 8 hours are up; the tick skill then removes the one cron job and prints "Session finished".
 
 ### Changed
 
 - `docs/cap-override.md` moved to `docs/history/`; the harness default `PRWATCH_REPO` is now `~/Documents/GitHub/pr-watcher/watcher`.
+- One session cron job (`*/15 * * * *` → `/prwatch-tick`); the summary is no longer a separate job and the sched gate accepts only that one string.
+- The launcher's watchdog and exit notice take the session status from `prwatch-tick.sh --window`; the "stopped early" notification now says the watcher stopped before the end of its session.
+- Stop markers are per session (`stopped-<session_id>`; old dated markers are ignored and swept); every `events.jsonl` line carries `session`; `paused_until` is stored as epoch seconds; the tick status `stopped_for_today` is now `stopped`.
+- `watcher/CLAUDE.md`, the five skills and both READMEs describe the session in elapsed time (the first 7½ hours, the next launch) and never name a clock time or a day of the week.
+- Times shown to Jack are HH:MM (`started_hm`, `starts_until`, `ends_at`, pause `until`), with "tomorrow" or "yesterday" added when the day differs; the end-of-session notification is titled "Session summary". The sched gate refuses a `CronCreate` with any field beyond cron, prompt and recurring, or a non-boolean `recurring`. Scripts refuse a malformed session id. `prwatch-prep.sh` answers a lock without `started_epoch` with exit 25 ("no session start"), keeping 27 for the 7½-hour cut-off.
+
+### Removed
+
+- The daily review cap: `cap N`, the `PRWATCH CAP:` hook line, `prwatch-state.sh today`, `daily-inc`, `cap` and `stop-today`, prep exits 24 and 26, state exit 65, the `cap` notification kind, the `daily` and `cap_override` state fields (dropped on the first write), and the harness checks that asserted them.
+- The office-hours and working-week window: nothing in the watcher checks the time of day or the day of the week any more.
 
 ## [0.1.0] - 2026-10-29
 

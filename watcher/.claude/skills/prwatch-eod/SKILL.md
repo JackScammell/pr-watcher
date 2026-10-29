@@ -1,13 +1,12 @@
 ---
 name: prwatch-eod
-description: PR watcher end-of-day summary (fired once after 16:00 by session cron) - one quiet notification with counts and a list in the window.
+description: PR watcher session summary (run by /prwatch-tick once the 8-hour session is over) - one quiet notification with counts and a list in the window.
 ---
 
 # /prwatch-eod
 
-1. Read `/Users/jack/prwatch/state/state.json` and `/Users/jack/prwatch/state/events.jsonl` (today's lines only).
-2. Count today: `posted`, `skipped`, waiting for Jack (`ready`/`asking`/`awaiting_decision`/`go_ahead_pending`), not started (`queued` — they were requested after the 15:30 start cut-off or over the cap), `failed`. Run `/Users/jack/prwatch/bin/prwatch-state.sh today` for today's `used`, `cap` and `cap_default`.
-3. `/Users/jack/prwatch/bin/prwatch-notify.sh eod posted-<a>.waiting-<b>.not-started-<c>.failed-<d>` (numbers only; this is a silent notification).
-4. Print `Reviews today: <used> of <cap>` (add `(set by cap <cap>)` when `cap` differs from `cap_default`), then a short list in the window: one line per PR — key, status, recommendation, archive path. Say that waiting items can still be answered now with `d`, and that queued items will be reviewed from 08:00 tomorrow.
-5. `/Users/jack/prwatch/bin/prwatch-cleanup.sh --sweep`
-Do not start any review. Do not delete the cron jobs.
+1. Run `/Users/jack/prwatch/bin/prwatch-state.sh eod-done`. It counts this session's lines in `events.jsonl` and prints `{"posted":<a>,"waiting":<b>,"not_started":<c>,"failed":<d>}` (you never count them yourself; a second run prints the same counts). Exit 64 → print the line the script printed (for example "session not over") and stop. Any other non-zero exit → print the script's output and stop. Exit 5 → superseded: print "This window was replaced by a newer watcher window — please close it." and stop.
+2. `/Users/jack/prwatch/bin/prwatch-notify.sh eod posted-<a>.waiting-<b>.not-started-<c>.failed-<d>` (numbers only, from that JSON; this is a silent notification).
+3. Print `Session summary: posted <a>, waiting <b>, not started <c>, failed <d>`, then a short list in the window from `/Users/jack/prwatch/state/state.json` (Read tool): one line per PR — key, status, recommendation, archive path. Say that waiting items can still be answered now with `d`, and that queued items are reviewed at the next launch.
+4. `/Users/jack/prwatch/bin/prwatch-cleanup.sh --sweep`
+Do not start any review. Do not delete the cron job (`/prwatch-tick` does that after this summary).

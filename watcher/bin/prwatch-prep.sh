@@ -1,13 +1,15 @@
 #!/bin/zsh
 # prwatch-prep.sh <repo> <N> <sha40> <round>  → prints the archive dir. Unsandboxed (excludedCommands); ALL network is here.
-# Takes one of today's council slots first (nothing else is done if it can't): 24 = today's cap is used up,
-# 26 = state busy (try again at the next check), 25 = the count failed (superseded session, unreadable state).
+# Checks the session first (nothing else is done if it fails): 27 = window closed for new reviews (7 h 30 after the
+# launcher's started_epoch), 25 = session or login precondition failed (another session's lock, no started_epoch,
+# unreadable state). 20-23 = clone/fetch problems below.
 # Call with Bash timeout 2400000 (first clone + restore can take many minutes).
 NODE_BIN=( "$HOME/Library/Application Support/Herd/config/nvm/versions/node/"*/bin(N-/nOn) ); NODE_BIN=${NODE_BIN[1]:-}
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH="/opt/homebrew/bin:/usr/local/share/dotnet:${NODE_BIN:+$NODE_BIN:}/usr/bin:/bin" \
-  LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
+  LANG=en_GB.UTF-8 ${TZ:+TZ=$TZ} PRWATCH_CLEAN=1 ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob
-PRW=$HOME/prwatch; S=$PRW/state; A=$HOME/Documents/vision-reviews; GITBASE=https://github.com
+PRW=$HOME/prwatch; source $PRW/bin/prwatch-common.zsh
+S=$PRW/state; A=$HOME/Documents/vision-reviews; GITBASE=https://github.com
 if [[ -n ${PRWATCH_TESTMODE:-} ]]; then
   S=${PRWATCH_STATE_DIR:-$PRW/test/state}; A=${PRWATCH_ARCHIVE_DIR:-$PRW/test/archive}; GITBASE=${PRWATCH_GIT_BASE:-$GITBASE}
   [[ -n ${PRWATCH_STUB_BIN:-} ]] && path=($PRWATCH_STUB_BIN $path)
@@ -16,11 +18,15 @@ beat() { touch $PRW/state/activity 2>/dev/null; }          # watchdog heartbeat 
 repo=${1:-}; n=${2:-}; sha=${3:-}; round=${4:-}
 [[ $repo == [A-Za-z0-9._-]## && $n == [0-9]## && $sha == [0-9a-f](#c40) && $round == [0-9]## ]] || { print "bad arguments"; exit 64; }
 R=ACT-Training/$repo
-# Today's council cap is enforced here, not by the model: a council's archive and worktrees come only from prep.
-# Test mode from a plain Terminal (README T2) has no session and counts nothing.
+# The 7 h 30 start window is enforced here, not by the model: a council's archive and worktrees come only from prep.
+# Test mode from a plain Terminal (README T2) has no session and checks nothing.
 if [[ -z ${PRWATCH_TESTMODE:-} || -n ${PRWATCH_SESSION_ID:-} ]]; then
-  c=$($PRW/bin/prwatch-state.sh daily-inc)
-  case $? in 0) ;; 65) print -r -- "$c"; exit 24 ;; 75) print -r -- "$c"; exit 26 ;; *) print -r -- "could not count this review: $c"; exit 25 ;; esac
+  $PRW/bin/prwatch-state.sh check >/dev/null || { print "could not read state"; exit 25; }
+  [[ "$(jq -r .session_id $S/session.lock 2>/dev/null)" == "${PRWATCH_SESSION_ID:-x}" ]] || { print "superseded"; exit 25; }
+  # PRWATCH_LOGIN (PR 3): an empty login will also be exit 25 here.
+  se=$(started_epoch $S) || { print "no session start"; exit 25; }
+  now=$(now_epoch) || { print -r -- "$now"; exit 64; }
+  (( now - se < START_LIMIT )) || { print "window closed for new reviews"; exit 27; }
 fi
 export GH_CONFIG_DIR=$HOME/.config/gh
 # git hardening: watcher-owned global config (gh credential helper only), no system config, no hooks, no fsmonitor

@@ -10,16 +10,17 @@
 #        → <agentId>.stopped. Unmarked → <agentId>.ended note, in case the fault marker is written after it (race).
 #        Always exits 0: exit 2 on SubagentStop would keep the subagent running.
 #   pre  (PreToolUse *): while this session has an unarchived fault (see live()), deny every tool except TaskStop/TaskList, Read/Glob/Grep,
-#        CronList/CronDelete, ToolSearch (to load a deferred TaskStop) and canonical `prwatch-state.sh harness-abort|stop-today|get` — nothing may prompt or start
+#        CronList/CronDelete, ToolSearch (to load a deferred TaskStop) and canonical `prwatch-state.sh harness-abort|get` — nothing may prompt or start
 #        while PR code runs. Follow-up is `prwatch-state.sh harness-abort <key>` (needs every marker .stopped).
 # The model cannot write state/ (sandbox denyWrite + permission deny), so markers are not forgeable by PR text.
 # cleanup --sweep archives markers/notes older than a day; a new session id ignores older sessions' markers.
-[[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/usr/bin:/bin LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 \
+[[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" ${TZ:+TZ=$TZ} PATH=/usr/bin:/bin LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob nullglob
-PRW=$HOME/prwatch; S=$PRW/state
+PRW=$HOME/prwatch; source $PRW/bin/prwatch-common.zsh
+S=$PRW/state
 [[ -n ${PRWATCH_TESTMODE:-} ]] && S=${PRWATCH_STATE_DIR:-$PRW/test/state}
-NL=$'\n'; H=$S/harness; SID=${PRWATCH_SESSION_ID:-nosession}; today=$(date +%F)
+NL=$'\n'; H=$S/harness; SID=${PRWATCH_SESSION_ID:-}
 p=$(cat) || exit 0
 log() { mkdir -p $H; print -r -- "$(date -Iseconds) $*" >> $H/hook.log; }
 j() { print -r -- "$p" | /usr/bin/jq -r "$1" 2>/dev/null; }
@@ -44,16 +45,16 @@ case ${1:-} in
           [[ $st == async_launched || $as == true ]] || log "unknown Agent status '${st[1,40]}' treated as a fault"
           id=$(j '.tool_response.agentId // ""'); [[ $id == [A-Za-z0-9_-](#c1,64) ]] || id=unknown-$(date +%s)
           # one PR at a time (CLAUDE.md invariant 7), so this session owns at most one reviewing item
-          key=$(/usr/bin/jq -r --arg s $SID '[.prs|to_entries[]|select(.value.status=="reviewing" and .value.owner==$s)|.key][0] // "none"' $S/state.json 2>/dev/null)
+          key=$(/usr/bin/jq -r --arg s "$SID" '[.prs|to_entries[]|select(.value.status=="reviewing" and .value.owner==$s)|.key][0] // "none"' $S/state.json 2>/dev/null)
           [[ $key == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## ]] || key=none
           mkdir -p $H; ext=marker; [[ -f $H/$id.ended ]] && { ext=stopped; rm -f $H/$id.ended; }   # it already finished
-          /usr/bin/jq -n --arg s $SID --arg k $key --arg a $id --arg t "$(date -Iseconds)" \
+          /usr/bin/jq -n --arg s "$SID" --arg k "$key" --arg a "$id" --arg t "$(date -Iseconds)" \
             '{session:$s,key:$k,agent:$a,t:$t}' > $H/$id.$ext
-          touch $S/stopped-$today; log "fault agent=$id key=$key"
+          touch $S/stopped-$SID; log "fault agent=$id key=$key"
           if [[ $key == none ]]; then next="report PROBLEM (this is the start-up probe). "
           else next="run exactly this command, unquoted, on its own:${NL}$PRW/bin/prwatch-state.sh harness-abort $key${NL}"; fi
           $PRW/bin/prwatch-notify.sh error harness
-          print -u2 "PRWATCH HARNESS FAULT: that subagent was launched in the background. Call TaskStop on it (and on every other subagent from the same dispatch) now; if TaskStop says it is not running, it has already finished — that counts as stopped. Do not ask Jack anything or start anything else until they are all stopped. Then ${next}The watcher is stopped for today."
+          print -u2 "PRWATCH HARNESS FAULT: that subagent was launched in the background. Call TaskStop on it (and on every other subagent from the same dispatch) now; if TaskStop says it is not running, it has already finished — that counts as stopped. Do not ask Jack anything or start anything else until they are all stopped. Then ${next}The watcher is stopped for this session."
           exit 2
         fi ;;
       TaskStop)
@@ -75,7 +76,7 @@ case ${1:-} in
   pre)
     live || exit 0
     [[ $tool == (TaskStop|TaskList|ToolSearch|Read|Glob|Grep|CronList|CronDelete) ]] && exit 0
-    [[ $tool == Bash && "$(j '.tool_input.command // ""')" == $PRW/bin/prwatch-state.sh\ (harness-abort|stop-today|get)(\ [A-Za-z0-9/._@#:=+-]##)# ]] && exit 0
+    [[ $tool == Bash && "$(j '.tool_input.command // ""')" == $PRW/bin/prwatch-state.sh\ (harness-abort|get)(\ [A-Za-z0-9/._@#:=+-]##)# ]] && exit 0
     log "denied $tool while background subagents are live"
     k=""; for m in $H/*.marker $H/*.stopped; do [[ "$(/usr/bin/jq -r .session $m 2>/dev/null)" == $SID ]] || continue
       k=$(/usr/bin/jq -r .key $m 2>/dev/null); [[ $k == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## ]] && break; k=""; done

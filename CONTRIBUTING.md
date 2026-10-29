@@ -10,7 +10,7 @@ and the "This Project" paragraph in `CODE_OF_CONDUCT.md` first.
 | Path | What |
 |---|---|
 | `launcher/PR Watcher.command` | The double-click launcher. `install.sh` copies it to the Desktop. |
-| `watcher/bin/` | The scripts. Every count, window, key and path check lives here. |
+| `watcher/bin/` | The scripts. Every window, key and path check lives here. `prwatch-common.zsh` is sourced, not run: the window constants, the clock and the human time format. |
 | `watcher/.claude/skills/` | The five skills the session runs (`prwatch-start`, `prwatch-tick`, `prwatch-review`, `prwatch-decide`, `prwatch-eod`). |
 | `watcher/angles/` | The reviewer briefs, one per angle. |
 | `watcher/config/` | `settings.json` (permissions, sandbox, hooks) and `gitconfig`. |

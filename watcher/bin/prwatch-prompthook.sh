@@ -1,14 +1,16 @@
 #!/bin/zsh
-# prwatch-prompthook.sh prompt|sched  — hook, never called by the model. The only way to change today's council cap.
-#   prompt (UserPromptSubmit): a prompt that is exactly "cap N" (trimmed, any case) is Jack's: write state/cap/request.json
-#          {session,n} and run prwatch-state.sh cap N, which refuses without that fresh request. Reply to the model with
-#          one "PRWATCH CAP:" line. Any other prompt: nothing printed or written. Always exit 0 (never blocks a prompt).
+# prwatch-prompthook.sh prompt|sched  — hook, never called by the model. The only way to stop or pause the session.
+#   prompt (UserPromptSubmit): a prompt that is exactly "stop" or "pause N" (trimmed, any case) is Jack's: write
+#          state/stop/request.json or state/pause/request.json {session,n} and run prwatch-state.sh stop / pause N,
+#          which refuse without that fresh request. Reply to the model with one "PRWATCH STOP:" / "PRWATCH PAUSE:"
+#          line. Any other prompt: nothing printed or written. Always exit 0 (never blocks a prompt).
 #   sched (PreToolUse, any tool named like Cron/Schedule/Wakeup/Trigger): a scheduled prompt could reach UserPromptSubmit
-#          like Jack's typing → only /prwatch-start's two CronCreate jobs, CronList and CronDelete; anything else exit 2.
-[[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/usr/bin:/bin LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 \
+#          like Jack's typing → only /prwatch-start's one CronCreate job, CronList and CronDelete; anything else exit 2.
+[[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/usr/bin:/bin LANG=en_GB.UTF-8 ${TZ:+TZ=$TZ} PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob
-PRW=$HOME/prwatch; S=$PRW/state
+PRW=$HOME/prwatch; source $PRW/bin/prwatch-common.zsh
+S=$PRW/state
 [[ -n ${PRWATCH_TESTMODE:-} ]] && S=${PRWATCH_STATE_DIR:-$PRW/test/state}
 p=$(cat) || p=""                                   # not "|| exit 0" as in agenthook: sched must fail closed
 j() { print -r -- "$p" | /usr/bin/jq -r "$1" 2>/dev/null; }
@@ -18,28 +20,28 @@ plain() { print -r -- ${${1//[^A-Za-z0-9 ().,-]/}[1,80]}; }          # safe for 
 case ${1:-} in
   prompt)
     t=$(trim "$(j '.prompt // ""')")
-    [[ $t == (#i)cap\ ##[0-9](#c1,3) ]] || exit 0          # the whole prompt; the range is checked by state.sh
-    n=${t##* }
+    if   [[ $t == (#i)stop ]]; then kind=stop; n=stop; TAG="PRWATCH STOP"; bad="not done"
+    elif [[ $t == (#i)pause\ ##[0-9](#c1,3) ]]; then kind=pause; n=${t##* }; TAG="PRWATCH PAUSE"; bad="not changed"   # the range is checked by state.sh
+    else exit 0; fi                                     # "stop please", "pause x", "pause 9999", "cap 8": not ours
     [[ "$(/usr/bin/jq -r .session_id $S/session.lock 2>/dev/null)" == "${PRWATCH_SESSION_ID:-x}" ]] \
-      || { print "PRWATCH CAP: not changed (this window is not the current watcher)."; exit 0; }
-    mkdir -p $S/cap
-    /usr/bin/jq -n --arg s $PRWATCH_SESSION_ID --arg n $n '{session:$s,n:$n}' > $S/cap/request.json
-    out=$($PRW/bin/prwatch-state.sh cap $n 2>/dev/null); rc=$?    # stdout only: today's JSON, or the refusal reason
-    rm -f $S/cap/request.json                               # single use, whatever happened
-    if (( rc == 0 )); then
-      msg=$(/usr/bin/jq -r '"up to \(.cap) reviews may start today (normally \(.cap_default)); \(.used) started so far"' <<<$out 2>/dev/null)
-      print -r -- "PRWATCH CAP: ${msg:-up to $n reviews may start today}. Any queued PRs start at the next check."
-    else
-      print -r -- "PRWATCH CAP: not changed ($(plain "$out"))."
-    fi
+      || { print "$TAG: $bad (this window is not the current watcher)."; exit 0; }
+    mkdir -p $S/$kind
+    /usr/bin/jq -n --arg s $PRWATCH_SESSION_ID --arg n $n '{session:$s,n:$n}' > $S/$kind/request.json
+    out=$($PRW/bin/prwatch-state.sh $kind ${${kind:#stop}:+$n} 2>/dev/null); rc=$?    # stdout only: result, or the refusal reason
+    rm -f $S/$kind/request.json                         # single use, whatever happened
+    if (( rc != 0 )); then print -r -- "$TAG: $bad ($(plain "$out"))."
+    elif [[ $kind == stop ]]; then print -r -- "$TAG: the watcher is stopped for this session - no more checks or reviews."
+    else u=$(/usr/bin/jq -r '.until // ""' <<<$out 2>/dev/null); [[ $u == [0-9][0-9]:[0-9][0-9] ]] || u="?"
+         print -r -- "$TAG: checks skipped for $n minutes (until $u)."; fi
     exit 0 ;;
   sched)                                                    # subshell: any error in it means "deny", never exit 1
     ( tool=$(j '.tool_name // ""')
       [[ $tool == (CronList|CronDelete) ]] && exit 0
       [[ $tool == CronCreate ]] || exit 1
-      c=$(j '"\(.tool_input.cron // "")|\(.tool_input.prompt // "")|\(.tool_input.recurring | if . == null then true else . end)"')   # recurring: true when absent
-      [[ $c == "*/15 8-15 * * 1-5|/prwatch-tick|true" || $c == "3 16 * * 1-5|/prwatch-eod|true" ]] ) && exit 0
-    print -u2 "prwatch: nothing may be scheduled except /prwatch-start's two jobs: CronCreate /prwatch-tick at */15 8-15 * * 1-5 and /prwatch-eod at 3 16 * * 1-5 (recurring)."
+      # recurring: true when absent, must be a real boolean; any field beyond cron/prompt/recurring is refused
+      c=$(j '"\(.tool_input.cron // "")|\(.tool_input.prompt // "")|\(.tool_input.recurring | if . == null then true elif type == "boolean" then . else "bad" end)|\(.tool_input | keys - ["cron","prompt","recurring"] | length)"')
+      [[ $c == "*/15 * * * *|/prwatch-tick|true|0" ]] ) && exit 0
+    print -u2 "prwatch: nothing may be scheduled except /prwatch-start's one job: CronCreate /prwatch-tick at */15 * * * * (recurring)."
     exit 2 ;;
 esac
 exit 0
