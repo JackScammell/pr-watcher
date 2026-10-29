@@ -6,16 +6,17 @@ emulate -L zsh; set -u; setopt extendedglob
 PRW=$HOME/prwatch; S=$PRW/state
 if [[ -n ${PRWATCH_TESTMODE:-} ]]; then S=${PRWATCH_STATE_DIR:-$PRW/test/state}; [[ -n ${PRWATCH_STUB_BIN:-} ]] && path=($PRWATCH_STUB_BIN $path); fi
 kind=${1:-}; ref=${2:-}
-[[ $kind == (decision|question|stuck|error|eod|test) ]] || exit 64
+[[ $kind == (decision|question|newrepo|stuck|error|eod|test) ]] || exit 64
 [[ $ref == [A-Za-z0-9._#/-]## ]] || exit 64
 clean() { print -r -- "$1" | LC_ALL=C tr -cd 'A-Za-z0-9 .,:#()_-' | cut -c1-${2:-60}; }
 rec() { jq -r --arg k "$ref" ".prs[\$k].$1 // \"\"" "$S/state.json" 2>/dev/null; }
-short=${ref#ACT-Training/}
+short=$ref                                         # the full key: the owner matters now that the inbox spans organisations
 case $kind in
   decision) arch=$(rec archive); title=""; [[ -n $arch && -f $arch/input/pr.json ]] && title=$(jq -r '.title // ""' "$arch/input/pr.json" 2>/dev/null)
             sub=$short; snd=Glass
             msg="$(clean "$title") - reviewers suggest $(clean "$(rec recommendation)" 20) ($(clean "$(rec blockers)" 3) blockers). Your call: switch to Terminal, PR watcher window." ;;
   question) sub=$short; snd=Glass; msg="The watcher has a question for you. Switch to Terminal, PR watcher window." ;;
+  newrepo)  sub=$short; snd=Glass; msg="First pull request from a repository the watcher has not seen. In Terminal, type allow or block, then owner/repo." ;;
   stuck)    sub="Waiting on you"; snd=Funk; msg="No activity for 30+ min - the PR watcher window is probably waiting on a permission prompt or dialog." ;;
   error)    sub="Problem"; snd=Basso
             case $ref in

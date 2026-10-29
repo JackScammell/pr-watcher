@@ -15,19 +15,21 @@
 #       · 64 bad args / Laravel · 65 no state / no such project.  Log: <archive>/reviews/dotnet-test-<name>-<tz>.log
 # Call with Bash timeout 2400000.
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH="/usr/local/share/dotnet:/usr/bin:/bin" \
-  LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
+  LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_' | /usr/bin/grep -v -e '^PRWATCH_LOGIN=' -e '^PRWATCH_LOCK_JSON=')"}:#} /bin/zsh "$0" "$@"
+# PR code runs under this script: PRWATCH_LOGIN and PRWATCH_LOCK_JSON are filtered out of the re-exec above on purpose.
 emulate -L zsh; set -u; setopt extendedglob nullglob
-PRW=$HOME/prwatch; S=$PRW/state; LIMIT=2100; DOTNET=/usr/local/share/dotnet   # seconds before the run is killed
+PRW=$HOME/prwatch; source $PRW/bin/prwatch-common.zsh
+S=$PRW/state; LIMIT=2100; DOTNET=/usr/local/share/dotnet       # seconds before the run is killed
 [[ -n ${PRWATCH_TESTMODE:-} ]] && { S=${PRWATCH_STATE_DIR:-$PRW/test/state}; LIMIT=${PRWATCH_DTEST_LIMIT:-$LIMIT}; }
 key=${1:-}; proj=${2:-}; tz=${3:-}; name=${4:-}
-[[ $key == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## && $tz == (UTC|London) ]] || { print "bad arguments"; exit 64; }
+okkey "$key" && [[ $tz == (UTC|London) ]] || { print "bad arguments"; exit 64; }
 [[ $proj == [A-Za-z0-9][A-Za-z0-9/._-]#.csproj && $proj != *..* ]] || { print "bad project (use a path relative to the build copy, e.g. api/X.Tests/X.Tests.csproj)"; exit 64; }
 [[ -z $name || $name == [A-Za-z0-9._]## ]] || { print "bad test-name"; exit 64; }
 [[ "$(jq -r .session_id $S/session.lock 2>/dev/null)" == "${PRWATCH_SESSION_ID:-x}" ]] || { print superseded; exit 6; }
 sha=$(jq -r --arg k $key '.prs[$k].sha // ""' $S/state.json); arch=$(jq -r --arg k $key '.prs[$k].archive // ""' $S/state.json)
 [[ $sha == [0-9a-f](#c40) && -d $arch ]] || { print "no state for $key"; exit 65; }
 [[ "$(jq -r '.is_laravel // false' $arch/input/profile.json 2>/dev/null)" == true ]] && { print "Laravel: not run"; exit 64; }
-k=${key#ACT-Training/}; bw=$PRW/work/${k%%\#*}-pr${k##*\#}-${sha[1,7]}-build
+bw=$PRW/work/$(wt_name $key $sha)-build
 [[ -f $bw/$proj && -x $DOTNET/dotnet ]] || { print "no such project (or no dotnet)"; exit 65; }
 bw=${bw:A}; NU=${PRW:A}/cache/nuget
 pname=${${proj%.csproj}//\//_}; T=${PRW:A}/cache/dotnettest/${bw:t}-$pname-$tz; rm -rf $T; mkdir -p $T/tmp $T/home

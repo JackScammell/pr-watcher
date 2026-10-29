@@ -28,9 +28,14 @@ fi
 export PATH="${CLAUDE_BIN:h}:/usr/local/share/dotnet:$HOME/.dotnet/tools:$PATH"   # node for claude and ng; dotnet for builds
 print -r -- "claude: $CLAUDE_BIN ($("$CLAUDE_BIN" --version))"
 
-# 2. GitHub login + org access, using the REAL gh config (the session gets an empty one).
+# 2. GitHub login, using the REAL gh config (the session gets an empty one). The login is the only identity the
+#    scripts use (PRWATCH_LOGIN): the inbox is every repo it can see, so the org list is information only.
 GH_CONFIG_DIR="$HOME/.config/gh" gh auth status >/dev/null 2>&1 || say_err "GitHub CLI not logged in — run: gh auth login, then double-click again."
-GH_CONFIG_DIR="$HOME/.config/gh" gh api orgs/ACT-Training --silent 2>/dev/null || say_err "GitHub can't see ACT-Training (SSO authorisation?) — check gh auth."
+LOGIN=$(GH_CONFIG_DIR="$HOME/.config/gh" gh api user --jq .login 2>/dev/null)
+oklogin "$LOGIN" || say_err "GitHub did not return a usable login — check gh auth."
+export PRWATCH_LOGIN="$LOGIN"
+orgs=$(GH_CONFIG_DIR="$HOME/.config/gh" gh api user/orgs --jq '.[].login' 2>/dev/null | paste -sd' ' -)
+print -r -- "Signed in as $LOGIN. Organisations your login can see: ${orgs:-none}"
 
 # 3. Single-instance lock (test mode: the lock lives where the scripts look for it). started_epoch is the session clock:
 #    every script measures the window from it; PRWATCH_STARTED_EPOCH / PRWATCH_LOCK_JSON are outputs only, never read back.
@@ -43,8 +48,8 @@ if [[ -f "$LOCK" ]]; then
     [[ "$a" == [nN] ]] && exit 0
   fi
 fi
-/usr/bin/jq -n --arg t "$PRWATCH_SESSION_ID" --argjson p $$ --arg s "$(date -r "$SE" -Iseconds)" --argjson e "$SE" \
-   '{session_id:$t,pid:$p,started:$s,started_epoch:$e}' > "$LOCK.tmp" && mv "$LOCK.tmp" "$LOCK" || say_err "Could not write the lock file."
+/usr/bin/jq -n --arg t "$PRWATCH_SESSION_ID" --argjson p $$ --arg s "$(date -r "$SE" -Iseconds)" --argjson e "$SE" --arg l "$LOGIN" \
+   '{session_id:$t,pid:$p,started:$s,started_epoch:$e,login:$l}' > "$LOCK.tmp" && mv "$LOCK.tmp" "$LOCK" || say_err "Could not write the lock file."
 export PRWATCH_STARTED_EPOCH=$SE PRWATCH_LOCK_JSON="$(/usr/bin/jq -c . "$LOCK")"
 
 # 4. Keep the Mac from idle-sleeping while Claude runs (closing the lid still sleeps).

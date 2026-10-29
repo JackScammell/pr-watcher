@@ -15,5 +15,7 @@
  "ACT-Training/VisionApp#16":{"status":"go_ahead_declined","sha":"ppp"},
  "ACT-Training/VisionApp#17":{"status":"weird","sha":"qqq"},
  "ACT-Training/VisionApp#18":{"status":"go_ahead_pending","sha":"rrr"},
- "ACT-Training/VisionApp#19":{"status":"withdrawn","sha":"sss"}
-},"go_ahead":{"ACT-Training/VisionApp#20":"ttt"}}
+ "ACT-Training/VisionApp#19":{"status":"withdrawn","sha":"sss"},
+ "Some-Org/VisionApp#10":{"status":"posted","sha":"jjj","posted_at":"2026-09-28T10:00:00Z"}
+},"go_ahead":{"ACT-Training/VisionApp#20":"ttt"},
+"repos":{"Some-Org/VisionApp":"allowed"}}

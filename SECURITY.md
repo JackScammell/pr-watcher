@@ -58,7 +58,7 @@ the repo's `watcher/` directory.
   and the review is abandoned (see `docs/fix-background-agents.md`).
 - `state/` is written only by the watcher's own scripts and hooks, never by the model: `prwatch-state.sh`
   (`state.json`, `events.jsonl`), `prwatch-tick.sh` (seeds `state.json`, recreates `session.lock`), the launcher
-  (`session.lock`), the hooks (`harness/` markers and log, `stopped-<date>`, the `cap/` request file),
+  (`session.lock`), the hooks (`harness/` markers and log, `stopped-<session_id>`, `eod-done-<session_id>`, and the one-use request files under `stop/`, `pause/` and `repo/`),
   `prwatch-notify.sh` (`notify-throttle/`, `notify.log`), and the heartbeat `state/activity` touched by the hooks
   and the long-running scripts in `watcher/bin`. `state/` is in the sandbox `denyWrite` list and the Edit/Write
   deny rules.

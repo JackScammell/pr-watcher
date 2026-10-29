@@ -1,12 +1,17 @@
 #!/bin/zsh
 # prwatch-post.sh — the ONLY path that writes to GitHub. Unsandboxed (excludedCommands), behind an `ask` rule,
 # and raises its own macOS dialog. Call with Bash timeout 1200000.
-# Usage: prwatch-post.sh --repo Vision --pr 1812 --sha <40hex> --event request-changes|approve|comment
+# Usage: prwatch-post.sh --key <owner>/<repo>#<n> --sha <40hex> --event request-changes|approve|comment
 #                        --body-sha <12hex> [--tech yes|no] [--allow-stale]
+# Needs PRWATCH_LOGIN (the launcher's export): the receipt looks up the review by that login.
+# Exit: 0 posted (or dry run) · 3 PR not open · 4 head moved · 6 superseded · 7 already posted for this commit
+#       · 8 draft changed since shown · 9 body check failed · 10 could not read the PR · 11 not posted (dialog)
+#       · 12 gh pr review failed · 64 bad arguments / bad event/tech / no login / archive path / missing draft.
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/opt/homebrew/bin:/usr/bin:/bin LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob
-PRW=$HOME/prwatch; S=$PRW/state; DRY=""
+PRW=$HOME/prwatch; source $PRW/bin/prwatch-common.zsh
+S=$PRW/state; DRY=""
 if [[ -n ${PRWATCH_TESTMODE:-} ]]; then
   S=${PRWATCH_STATE_DIR:-$PRW/test/state}; DRY=${PRWATCH_DRY_POST:-1}; [[ $DRY == 0 ]] && DRY=""   # test mode: dry unless PRWATCH_DRY_POST=0
   [[ -n ${PRWATCH_STUB_BIN:-} ]] && path=($PRWATCH_STUB_BIN $path)
@@ -27,7 +32,7 @@ kill_strays() {
   for k in $desc; do
     (( ${anc[(Ie)$k]} )) && continue
     cmd=$(ps -p $k -o command= 2>/dev/null); cwd=$(lsof -a -d cwd -p $k -Fn 2>/dev/null | sed -n 's/^n//p')
-    [[ $cmd == *$W/* || $cwd == $W(|/*) ]] || continue
+    [[ $cmd == *$W/${~WT_GLOB}* || $cwd == $W/${~WT_GLOB}(|/*) ]] || continue     # only worktree-shaped paths count
     kill -TERM $k 2>/dev/null && (( n++ ))
   done
   print -r -- "killed_strays=$n"
@@ -35,12 +40,13 @@ kill_strays() {
 die() { print -r -- "prwatch-post: $2"; exit $1; }
 typeset -A a; stale=0
 while (( $# )); do case $1 in
-  --repo|--pr|--sha|--event|--body-sha|--tech) a[$1]=${2:-}; shift 2;;
+  --key|--sha|--event|--body-sha|--tech) a[$1]=${2:-}; shift 2;;
   --allow-stale) stale=1; shift;; --dry-run) DRY=1; shift;; *) die 64 "unknown argument";; esac; done
-repo=${a[--repo]:-}; n=${a[--pr]:-}; sha=${a[--sha]:-}; ev=${a[--event]:-}; bsha=${a[--body-sha]:-}; tech=${a[--tech]:-no}
-[[ $repo == [A-Za-z0-9._-]## && $n == [0-9]## && $sha == [0-9a-f](#c40) && $bsha == [0-9a-f](#c12) ]] || die 64 "bad arguments"
+key=${a[--key]:-}; sha=${a[--sha]:-}; ev=${a[--event]:-}; bsha=${a[--body-sha]:-}; tech=${a[--tech]:-no}
+okkey "$key" && [[ $sha == [0-9a-f](#c40) && $bsha == [0-9a-f](#c12) ]] || die 64 "bad arguments"     # no default owner
 [[ $ev == (request-changes|approve|comment) && $tech == (yes|no) ]] || die 64 "bad event/tech"
-key="ACT-Training/$repo#$n"; R="ACT-Training/$repo"
+oklogin "${PRWATCH_LOGIN:-}" || die 64 "no login"
+key_split $key; R=$o/$repo
 # 1. session + double-post checks
 [[ "$(jq -r .session_id $S/session.lock 2>/dev/null)" == "${PRWATCH_SESSION_ID:-x}" ]] || die 6 "superseded: another watcher window owns the state"
 st=$(jq -r --arg k "$key" '.prs[$k].status // ""' $S/state.json); psha=$(jq -r --arg k "$key" '.prs[$k].posted_sha // ""' $S/state.json)
@@ -72,7 +78,7 @@ kill_strays >/dev/null
 label=${${ev:u}//-/ }
 print -r -- "A Mac dialog 'PR Watcher - confirm post' is opening. Click Post to publish (Enter cancels). If you can't see it, Cmd-Tab to 'osascript'."
 while :; do
-  msg="Post ${label} on $repo #$n?  ${note}
+  msg="Post ${label} on ${o}/${repo} #${n}?  ${note}
 Reviewed commit ${sha[1,7]} - PR head now ${head[1,7]}
 Body: $(wc -l < $snap | tr -d ' ') lines, fingerprint $h$( [[ $tech == yes ]] && print -n ' + technical-detail comment')
 Mentions: ${mentions:-none}
@@ -97,7 +103,7 @@ if [[ -n $DRY ]]; then
 fi
 gh pr review $n -R $R --$ev --body-file $snap >/dev/null || die 12 "gh pr review failed - nothing else posted"
 [[ $tech == yes ]] && { gh pr comment $n -R $R --body-file $dir/post/tech-as-posted.md >/dev/null || print "Review posted; technical-detail comment FAILED."; }
-url=$(gh api "repos/$R/pulls/$n/reviews" --jq '[.[]|select(.user.login=="JackScammell")]|last|.html_url' 2>/dev/null)
+url=$(gh api "repos/$R/pulls/$n/reviews" 2>/dev/null | jq -r --arg me "$PRWATCH_LOGIN" '[.[]|select(.user.login==$me)]|last|.html_url')
 jq -n --arg e $ev --arg s $sha --arg h $h --arg u "$url" --arg t "$(date -Iseconds)" '{event:$e,sha:$s,body_sha:$h,url:$u,at:$t}' > $dir/post/receipt.json
 $PRW/bin/prwatch-state.sh set "$key" posted posted_sha=$sha posted_event=$ev >/dev/null
 $PRW/bin/prwatch-cleanup.sh "$key"

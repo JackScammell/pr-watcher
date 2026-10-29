@@ -46,7 +46,7 @@ case ${1:-} in
           id=$(j '.tool_response.agentId // ""'); [[ $id == [A-Za-z0-9_-](#c1,64) ]] || id=unknown-$(date +%s)
           # one PR at a time (CLAUDE.md invariant 7), so this session owns at most one reviewing item
           key=$(/usr/bin/jq -r --arg s "$SID" '[.prs|to_entries[]|select(.value.status=="reviewing" and .value.owner==$s)|.key][0] // "none"' $S/state.json 2>/dev/null)
-          [[ $key == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## ]] || key=none
+          [[ $key == ${~KEY_PAT} ]] || key=none
           mkdir -p $H; ext=marker; [[ -f $H/$id.ended ]] && { ext=stopped; rm -f $H/$id.ended; }   # it already finished
           /usr/bin/jq -n --arg s "$SID" --arg k "$key" --arg a "$id" --arg t "$(date -Iseconds)" \
             '{session:$s,key:$k,agent:$a,t:$t}' > $H/$id.$ext
@@ -79,7 +79,7 @@ case ${1:-} in
     [[ $tool == Bash && "$(j '.tool_input.command // ""')" == $PRW/bin/prwatch-state.sh\ (harness-abort|get)(\ [A-Za-z0-9/._@#:=+-]##)# ]] && exit 0
     log "denied $tool while background subagents are live"
     k=""; for m in $H/*.marker $H/*.stopped; do [[ "$(/usr/bin/jq -r .session $m 2>/dev/null)" == $SID ]] || continue
-      k=$(/usr/bin/jq -r .key $m 2>/dev/null); [[ $k == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## ]] && break; k=""; done
+      k=$(/usr/bin/jq -r .key $m 2>/dev/null); [[ $k == ${~KEY_PAT} ]] && break; k=""; done
     print -u2 "PRWATCH HARNESS FAULT: this session has an unfinished harness fault. TaskStop any background subagent still running (\"not running\" means it already finished). Nothing else may prompt or start until then.${k:+${NL}Then run exactly this command, unquoted, on its own:${NL}$PRW/bin/prwatch-state.sh harness-abort $k}"
     exit 2 ;;
 esac

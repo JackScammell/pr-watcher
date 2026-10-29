@@ -54,7 +54,7 @@ still fresh.
 - Follow `.github/pull_request_template.md`.
 - Plain-English summary first; the technical detail goes below it.
 - No dates or merge windows in the body.
-- One `CHANGELOG.md` line per PR under `[Unreleased]`.
+- One `CHANGELOG.md` entry per PR under each affected heading (Added, Changed, Removed) in `[Unreleased]`; sub-bullets allowed.
 - Each PR changes code, prose and harness asserts together.
 
 ## Parliament re-pin cadence

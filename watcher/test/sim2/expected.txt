@@ -18,3 +18,5 @@ ACT-Training/VisionApp#17 st=weird draft=false size=6 -> notice_unknown_status(w
 ACT-Training/VisionApp#18 st=go_ahead_pending draft=false size=5001 -> pending_go_ahead
 ACT-Training/VisionApp#19 st=withdrawn draft=false size=6 -> new
 ACT-Training/VisionApp#20 st=absent draft=false size=5001 -> new
+JackScammell/pr-watcher#1 st=absent draft=- size=0 -> new_repo
+Some-Org/VisionApp#10 st=posted draft=false size=6 -> ignore_index_lag
