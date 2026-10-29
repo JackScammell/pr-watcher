@@ -15,7 +15,8 @@
 #       · 64 bad args / Laravel · 65 no state / no such project.  Log: <archive>/reviews/dotnet-test-<name>-<tz>.log
 # Call with Bash timeout 2400000.
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH="/usr/local/share/dotnet:/usr/bin:/bin" \
-  LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
+  LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_' | /usr/bin/grep -v -e '^PRWATCH_LOGIN=' -e '^PRWATCH_LOCK_JSON=')"}:#} /bin/zsh "$0" "$@"
+# PR code runs under this script: PRWATCH_LOGIN and PRWATCH_LOCK_JSON are filtered out of the re-exec above on purpose.
 emulate -L zsh; set -u; setopt extendedglob nullglob
 PRW=$HOME/prwatch; source $PRW/bin/prwatch-common.zsh
 S=$PRW/state; LIMIT=2100; DOTNET=/usr/local/share/dotnet       # seconds before the run is killed

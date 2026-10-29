@@ -2,8 +2,9 @@
 # prwatch-prep.sh <key> <sha40> <round>  → prints the archive dir. Unsandboxed (excludedCommands); ALL network is here.
 # <key> is <owner>/<repo>#<n>; every path (repo clone, worktrees, archive) is built from its parts by prwatch-common.zsh.
 # Checks the session first (nothing else is done if it fails): 27 = window closed for new reviews (7 h 30 after the
-# launcher's started_epoch), 25 = session or login precondition failed (another session's lock, no started_epoch,
-# unreadable state). 20-23 = clone/fetch problems below.
+# launcher's started_epoch), 25 = session, login or repo precondition failed (another session's lock, no started_epoch,
+# unreadable state, no login, "repo not allowed" - repo_allowed in prwatch-common.zsh, checked before any network).
+# 20-23 = clone/fetch problems below. 64 = bad arguments.
 # Call with Bash timeout 2400000 (first clone + restore can take many minutes).
 NODE_BIN=( "$HOME/Library/Application Support/Herd/config/nvm/versions/node/"*/bin(N-/nOn) ); NODE_BIN=${NODE_BIN[1]:-}
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH="/opt/homebrew/bin:/usr/local/share/dotnet:${NODE_BIN:+$NODE_BIN:}/usr/bin:/bin" \
@@ -29,6 +30,8 @@ if [[ -z ${PRWATCH_TESTMODE:-} || -n ${PRWATCH_SESSION_ID:-} ]]; then
   now=$(now_epoch) || { print -r -- "$now"; exit 64; }
   (( now - se < START_LIMIT )) || { print "window closed for new reviews"; exit 27; }
 fi
+# the source gate, in every mode: a repo Jack has not allowed (or has blocked) is never cloned or fetched
+repo_allowed $S/state.json $R || { print "repo not allowed"; exit 25; }
 export GH_CONFIG_DIR=$HOME/.config/gh
 # git hardening: watcher-owned global config (gh credential helper only), no system config, no hooks, no fsmonitor
 export GIT_CONFIG_GLOBAL=$PRW/config/gitconfig GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
@@ -70,7 +73,7 @@ if [[ -n $last ]]; then
     $G -C $src log -p --no-merges $last..$sha "^origin/$base" > $dir/input/delta.patch
     for m in ${(f)"$($G -C $src rev-list --merges $last..$sha)"}; do [[ -n $m ]] && $G -C $src show --remerge-diff $m >> $dir/input/merge-remerge.txt; done
   else print "force-pushed or rebased: full review; previous findings in prior-review.md" > $dir/input/delta.patch; fi
-  jq -r --arg me "$PRWATCH_LOGIN" '[.[]|select(.user.login==$me and (.body|length)>0)]|last|.body // ""' $dir/input/reviews.json > $dir/input/prior-review.md
+  jq -r --arg me "${PRWATCH_LOGIN:-}" '[.[]|select(.user.login==$me and (.body|length)>0)]|last|.body // ""' $dir/input/reviews.json > $dir/input/prior-review.md
 fi
 # stack profile (drives angles and build recipe)
 files=$(jq -r '.files[].path' $dir/input/pr.json)

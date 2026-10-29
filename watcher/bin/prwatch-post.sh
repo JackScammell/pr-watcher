@@ -4,6 +4,9 @@
 # Usage: prwatch-post.sh --key <owner>/<repo>#<n> --sha <40hex> --event request-changes|approve|comment
 #                        --body-sha <12hex> [--tech yes|no] [--allow-stale]
 # Needs PRWATCH_LOGIN (the launcher's export): the receipt looks up the review by that login.
+# Exit: 0 posted (or dry run) · 3 PR not open · 4 head moved · 6 superseded · 7 already posted for this commit
+#       · 8 draft changed since shown · 9 body check failed · 10 could not read the PR · 11 not posted (dialog)
+#       · 12 gh pr review failed · 64 bad arguments / bad event/tech / no login / archive path / missing draft.
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/opt/homebrew/bin:/usr/bin:/bin LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob

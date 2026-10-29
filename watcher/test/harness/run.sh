@@ -4,7 +4,7 @@
 # templates, guard, settings, launcher, skill wording, the 8-hour session window (B1), hook-owned stop/pause (B2),
 # the launcher exit notice (B2.7/B2.8), the key grammar (B4), owner-bearing paths and prep/post arguments (B5), the
 # PRWATCH_LOGIN plumbing (B6), the scheduling gate (B8), prose values (B9), legacy inputs (B10), the state lock on set
-# (B11), the first-sighting repo gate (B12) and repo↔install sync. Runs the INSTALLED scripts.
+# (B11), the first-sighting repo gate and the allow/block gate on prep, set and tick (B12) and repo↔install sync. Runs the INSTALLED scripts.
 #   PRWATCH_LAUNCHER=<repo>/launcher/PR\ Watcher.command  (default: the Desktop copy)
 #   PRWATCH_REPO=<repo>/watcher                           (for the sync check; skipped visibly if missing)
 # Mutations (plan §7, applied to the installed copy; each must fail the named check):
@@ -12,19 +12,22 @@
 #   M2  START_LIMIT compare < → <=                        → "B1: T+7h30 → start_closed"
 #   M3  END compare >= → >                                → "B1: T+8h → session_over"
 #   M4  state.sh stop skips the request check            → "B2: stop with no request → 64, nothing stopped"
-#   M5  wt_name drops the owner                          → "B5: cleanup of one owner's key removes its worktree, spares the other owner's"
+#   M5  wt_name drops the owner                          → "ngtest profile: writes only build copy + private dir" + "dotnettest run: fake Passed! → 0, log in archive"
+#       (the -build copy is wt_name); cleanup matches on wt_prefix: dropping the owner THERE → "B5: cleanup of one owner's key removes its worktree, spares the other owner's"
 #   M6  launcher stops exporting PRWATCH_LOGIN           → "B6: launcher writes login into the lock and exports PRWATCH_LOGIN"
-#   M7  JackScammell hard-coded back into tick            → "B6: timeline re-request filtered by PRWATCH_LOGIN (other → ignore)" + "B5: no JackScammell in bin, .claude, CLAUDE.md"
+#   M7  JackScammell hard-coded back into tick            → "B6: the stub login → rerequested_same_sha, requeued" (the filter would want JackScammell, the stub says stubuser → ignore) + "B5: no JackScammell in bin, .claude, CLAUDE.md"
 #   M8  owner charset widened (e.g. admits '.')           → "B4: refuse '../x#1'"
 #   M11 sched gate accepts any cron with /prwatch-tick   → "B8: other cadence (*/10) denied"
 #   M13 --window touches the heartbeat                   → "B1.18: --window leaves the heartbeat alone"
 #   M14 prep skips the window check                      → "B1.18: prep at T+7h31 → window closed, nothing done"
 #   M15 post defaults the owner (Vision#1 → ACT-Training) → "B5: post --key Vision#1 → 64 bad arguments (no default owner)"
+#   M16 prep skips the repo gate                         → "B12: prep on a repo with no repos entry and no prs key → 25 repo not allowed, nothing cloned"
+#   M17 state set skips the repo gate                    → "B12: set on a key whose repo is absent → 64 repo not allowed, repo_not_allowed event, no prs entry"
 emulate -L zsh; set -u; setopt nullglob
 export TZ=Europe/London
 PRW=$HOME/prwatch; B=$PRW/bin; FX=${0:A:h}/fixtures; fail=0; n=0
-T=$(mktemp -d /tmp/pwh.XXXXXX); W=$PRW/work/ACT-Training__Zzzt-pr9-abc; W2=$PRW/work/Some-Org__Zzzt-pr9-abc; PA=$PRW/test/harness-post-$$; pids=()
-trap 'kill $pids 2>/dev/null; rm -rf $T $W $W2 $PA $PRW/work/ACT-Training__Zzzt-pr9-0123456-build' EXIT
+T=$(mktemp -d /tmp/pwh.XXXXXX); W=$PRW/work/ACT-Training__Zzzt-pr9-0123456; W2=$PRW/work/Some-Org__Zzzt-pr9-0123456; RZL=$PRW/repos/ACT-Training__Zzzt; PA=$PRW/test/harness-post-$$; pids=()
+trap 'kill $pids 2>/dev/null; rm -rf $T $W $W2 $PA $W-build; [[ -L $RZL ]] && rm -f $RZL' EXIT   # RZL: the B5 derivation check's symlinked clone
 export PRWATCH_TESTMODE=1 PRWATCH_STATE_DIR=$T PRWATCH_STUB_BIN=$PRW/test/stub PRWATCH_SESSION_ID=sid-A PRWATCH_PID=1
 export PRWATCH_LOGIN=stubuser                           # what the launcher exports from `gh api user` (the stub gh answers the same; B6 varies it)
 SE=$(date -j -f %Y-%m-%dT%H:%M:%S 2026-09-29T09:00:00 +%s)        # session start: a Tuesday, BST. Ticks use PRWATCH_NOW=$((SE+offset))
@@ -32,6 +35,8 @@ ok()   { (( n++ )); if eval "$2"; then print "ok   $1"; else print "FAIL $1"; ((
 lockfor() { jq -nc --arg s ${1:-sid-A} --argjson e ${2:-$SE} '{session_id:$s,pid:1,started_epoch:$e}' > $T/session.lock; }
 reset() { rm -rf $T/*(N) $T/.*(N); print '{"prs":{},"go_ahead":{},"repos":{"ACT-Training/Vision":"allowed","ACT-Training/Zzzt":"allowed"}}' > $T/state.json; lockfor sid-A $SE; }   # repos seeded: an unseen repo is new_repo (B12)
 norepos() { jq -c '.repos={}' $T/state.json > $T/s && mv $T/s $T/state.json; }
+seedrepo() { jq -c --arg r $1 --arg v $2 '.repos[$r]=$v' $T/state.json > $T/s && mv $T/s $T/state.json; }      # seedrepo <owner/repo> allowed|blocked (as given: the scripts look up case-insensitively)
+rp() { jq -r --arg r ${1:l} '[.repos|to_entries[]|select(.key|ascii_downcase==$r)|.value]|first // "null"' $T/state.json; }   # repos[<repo>] in any case
 review() { $B/prwatch-state.sh set ACT-Training/Vision#1 reviewing sha=abc step=council attempts=1 >/dev/null; }
 post() { $B/prwatch-agenthook.sh post < $FX/$1 2>$T/err; }
 ended() { $B/prwatch-agenthook.sh ended < $FX/$1 2>/dev/null; }
@@ -233,7 +238,7 @@ ok "launcher exports var before claude"    '[[ -n $e && -n $c ]] && (( e < c ))'
 AN=$PRW/angles/testing-build.md
 ok "settings: .NET uses IPv4 in the sandbox" '[[ "$(jq -r .env.DOTNET_SYSTEM_NET_DISABLEIPV6 $C)" == 1 ]]'
 for sc in prep buildrun post tick state notify cleanup prompthook; do
-ok "$sc re-execs with env -i (settings env can't leak in)" "head -14 $B/prwatch-$sc.sh | grep -q 'exec /usr/bin/env -i'"; done
+ok "$sc re-execs with env -i (settings env can't leak in)" "head -20 $B/prwatch-$sc.sh | grep -q 'exec /usr/bin/env -i'"; done
 ok "dotnettest: runs with --diag, quotes testhost exception" 'grep -q -- "--diag:\$T/diag/log.txt" $B/prwatch-dotnettest.sh && grep -q "log.host" $B/prwatch-dotnettest.sh && grep -q "each test project separately" $AN'
 ok "angle: 'ran' defined, no APPROVE without" 'grep -q "What counts as \"ran\"" $AN && grep -q "no test ran, your verdict can.t be .APPROVE" $AN && grep -q "TESTS-RAN:" $AN'
 ok "angle: limits scoped to that command"  'grep -q "stop running that same command" $AN && grep -q "only that script" $AN'
@@ -254,7 +259,7 @@ ok "shim: explicit template untouched"      '[[ $(mk $MT/exp.XXXX) == $MT/exp.??
 ok "shim: unknown option passed through"    '[[ "$(mk --bogus)" == *unrecognized* || "$(mk --bogus)" == *illegal* || "$(mk --bogus)" == *usage* ]]'
 
 # --- prwatch-ngtest.sh: arguments, state, and the sandbox profile it generates
-NG=$B/prwatch-ngtest.sh; NSHA=0123456789abcdef0123456789abcdef01234567; NBW=$PRW/work/ACT-Training__Zzzt-pr9-0123456-build
+NG=$B/prwatch-ngtest.sh; NSHA=0123456789abcdef0123456789abcdef01234567; NBW=$W-build
 reset; mkdir -p $T/arch/input $T/arch/reviews $NBW/frontend; : > $NBW/frontend/karma.conf.js; print '{"is_laravel":false}' > $T/arch/input/profile.json
 $SS set ACT-Training/Zzzt#9 reviewing sha=$NSHA archive=$T/arch >/dev/null
 ng() { $NG "$@" >/dev/null 2>&1; print $?; }
@@ -608,10 +613,20 @@ for k in '../x#1' 'a/b/c#1' 'A/B#x' 'A/B#' 'A/B' '/B#1' 'A/#1' 'A/B#1#2' 'A/B#1 
 ok "B4: refuse '${k[1,40]}'"                '[[ $(b4 state get "$k") == 64 && $(b4 cleanup "$k") == 64 && $(b4 ngtest "$k" frontend) == 64 ]]'; done
 
 # B5 — owner-bearing paths (D13/D14): names, prep/post argument validation, no hard-coded login or org
-reset; PRWATCH_NOW=$SE pp >/dev/null; PRWATCH_NOW=$SE pk Some-Org/Zzzt#9 $NSHA 1 >/dev/null; D5=$(date +%F); arch=($T/archive/*(/N))
+reset; seedrepo Some-Org/Zzzt allowed; PRWATCH_NOW=$SE pp >/dev/null; PRWATCH_NOW=$SE pk Some-Org/Zzzt#9 $NSHA 1 >/dev/null; D5=$(date +%F); arch=($T/archive/*(/N))
 ok "B5: archive is <date>-<owner:l>-<repo:l>-pr<n>-round<k>; two owners, same repo → two archives" '(( ${#arch} == 2 )) && [[ -d $T/archive/$D5-act-training-zzzt-pr9-round1 && -d $T/archive/$D5-some-org-zzzt-pr9-round1 ]]'
 mkdir -p $W $W2; $B/prwatch-cleanup.sh Some-Org/Zzzt#9
 ok "B5: cleanup of one owner's key removes its worktree, spares the other owner's" '[[ ! -e $W2 && -d $W ]] && $B/prwatch-cleanup.sh "ACT-Training/Zzzt#9" && [[ ! -e $W ]]'
+# a real worktree of a real clone: cleanup must derive <owner>__<repo> from the worktree name and remove it through THAT clone's
+# git. The clone is reached only through a symlink under repos/ (git -C follows it; the prune glob's lstat does not), so if the
+# derivation were wrong the rm -rf fallback would leave the worktree registered in the clone.
+RZ=$T/rz; [[ -L $RZL ]] && rm -f $RZL
+if [[ ! -e $RZL ]]; then
+  git -c init.defaultBranch=main init -q $RZ && git -C $RZ -c user.name=h -c user.email=h@x -c core.hooksPath=/dev/null commit -q --allow-empty -m seed \
+    && git -C $RZ -c core.hooksPath=/dev/null worktree add -q --detach $W && ln -s $RZ $RZL
+  $B/prwatch-cleanup.sh ACT-Training/Zzzt#9; rm -f $RZL
+  ok "B5: cleanup derives <owner>__<repo> from the worktree name: a real worktree goes through its clone's git, not the rm -rf fallback" '[[ ! -e $W ]] && (( $(git -C $RZ worktree list --porcelain | grep -c "^worktree ") == 1 ))'
+else print "skip B5 derivation check ($RZL exists and is not a symlink)"; fi
 for args in "Zzzt 9 $NSHA 1" "../x#1 $NSHA 1" "A/B#01 $NSHA 1" "ACT-Training/Zzzt#9 $NSHA"; do reset; out=$(PRWATCH_NOW=$SE pk ${=args}); rc=$?
 ok "B5: prep '${args//$NSHA/<sha40>}' → 64 bad arguments, nothing done" '(( rc == 64 )) && [[ $out == "bad arguments" && ! -e $T/archive ]]'; done
 P5=$B/prwatch-post.sh
@@ -649,6 +664,7 @@ if [[ -f $L ]]; then
   ok "B6: launcher refuses an invalid login ('bad login!')" '(( $(<$T/launch.rc) != 0 )) && [[ $(jq -r .session_id $T/session.lock) == sid-A && ! -e $T/lock-seen.json ]] && grep -q "error launcher" $T/notify.log'
   ok "B6: launcher: one informational user/orgs line, no ACT-Training org check" '(( $(grep -c "gh api user/orgs" "$L") == 1 )) && ! grep -q "orgs/ACT-Training" "$L"'
 else print "skip B6 launcher checks (no launcher at $L; set PRWATCH_LAUNCHER)"; fi
+ok "B6: the three sandboxed test re-execs drop PRWATCH_LOGIN and PRWATCH_LOCK_JSON from the environment they pass on" '( for f in prwatch-buildrun.sh prwatch-ngtest.sh prwatch-dotnettest.sh; do head -20 $B/$f | grep -q "grep -v -e .\^PRWATCH_LOGIN=. -e .\^PRWATCH_LOCK_JSON=." || exit 1; done )'
 ok "B6: tick query: no --owner, user-review-requested:@me, author in --json" '! grep -q -- "--owner" $B/prwatch-tick.sh && grep -q "user-review-requested:@me" $B/prwatch-tick.sh && grep "gh search prs" $B/prwatch-tick.sh | grep -Eq -- "--json [A-Za-z,]*author"'
 for h in '../x#1' 'a/b;ls#1'; do reset; cp $T/state.json $T/state.before; : > $T/gh-calls.log; j=$(tko "$h" $SE)
 ok "B6: hostile nameWithOwner '$h' → dropped: ok, items empty, no state write, no pr view" '[[ $(jq -c "[.status,.items]" <<<$j) == "[\"ok\",[]]" ]] && cmp -s $T/state.json $T/state.before && ! grep -q "pr view" $T/gh-calls.log'; done
@@ -662,17 +678,54 @@ j2=$(PRWATCH_ONLY_AUTHOR=someone tko Some-Org/Zzzt#9 $((SE+900)))
 ok "B12: next tick repeats the notice, notification throttled, still no write" '[[ $(jq -r ".notices[0]" <<<$j2) == "$NL" && $(jq -r ".items[0].reason" <<<$j2) == new_repo ]] && (( $(grep -c " question " $T/notify.log) == 1 )) && cmp -s $T/state.json $T/state.before'
 ok "B12: a notice, never a question: tick JSON and the tick skill's new_repo line carry no AskUserQuestion" '! grep -q AskUserQuestion <<<$j && grep new_repo $S7/prwatch-tick/SKILL.md | grep -q "never \`AskUserQuestion\`"'
 out=$(ph "allow Some-Org/Zzzt")
-ok "B12: ph 'allow Some-Org/Zzzt' → reply line, repos allowed, repo_allow event, request consumed" '[[ $out == "PRWATCH REPO: Some-Org/Zzzt allowed - its pull requests will be picked up at the next check." && $(jq -r ".repos[\"Some-Org/Zzzt\"]" $T/state.json) == allowed && ! -e $T/repo/request.json ]] && jq -e "select(has(\"repo_allow\") and .session==\"sid-A\")" $T/events.jsonl >/dev/null'
+ok "B12: ph 'allow Some-Org/Zzzt' → reply line, repos allowed, repo_allow event, request consumed" '[[ $out == "PRWATCH REPO: Some-Org/Zzzt allowed - its pull requests will be picked up at the next check." && $(rp Some-Org/Zzzt) == allowed && ! -e $T/repo/request.json ]] && jq -e "select(has(\"repo_allow\") and .session==\"sid-A\")" $T/events.jsonl >/dev/null'
 ok "B12: next tick → new, queued write"    '[[ $(tko "Some-Org/Zzzt#9" $((SE+1800)) | jq -r ".items[0].reason") == new && $(st "Some-Org/Zzzt#9" status) == queued ]]'
+ok "B12: positive control: the allowed repo's tick did call pr view (the no-pr-view checks above can fail)" 'grep -q "pr view" $T/gh-calls.log'
 out=$(ph "BLOCK Other-Org/Zzzt"); : > $T/gh-calls.log; j=$(PRWATCH_ONLY_AUTHOR=someone tko Other-Org/Zzzt#3 $((SE+1800)))
-ok "B12: ph 'block' (any case) → blocked, repo_block event; its PR → blocked_repo, no write, no pr view" '[[ $out == "PRWATCH REPO: Other-Org/Zzzt blocked - its pull requests are ignored." && $(jq -r ".repos[\"Other-Org/Zzzt\"]" $T/state.json) == blocked ]] && jq -e "select(has(\"repo_block\"))" $T/events.jsonl >/dev/null && [[ $(jq -c ".items[0]|[.reason,.sha,.author]" <<<$j) == "[\"blocked_repo\",\"\",\"someone\"]" && $(st "Other-Org/Zzzt#3" status) == null ]] && ! grep -q "pr view" $T/gh-calls.log'
+ok "B12: ph 'block' (any case) → blocked, repo_block event; its PR → blocked_repo with no author, no write, no pr view" '[[ $out == "PRWATCH REPO: Other-Org/Zzzt blocked - its pull requests are ignored." && $(rp Other-Org/Zzzt) == blocked ]] && jq -e "select(has(\"repo_block\"))" $T/events.jsonl >/dev/null && [[ $(jq -c ".items[0]|[.reason,.sha,.author]" <<<$j) == "[\"blocked_repo\",\"\",\"\"]" && $(st "Other-Org/Zzzt#3" status) == null ]] && ! grep -q "pr view" $T/gh-calls.log'
 reset; out=$($SS repo-allow x/y); rc=$?
 ok "B12: repo-allow with no request → 64, repo_refused event; bad repo → 64" '(( rc == 64 )) && jq -e "select(has(\"repo_refused\"))" $T/events.jsonl >/dev/null && ($SS repo-allow "../x" >/dev/null 2>&1; (( $? == 64 ))) && [[ $(jq ".repos|length" $T/state.json) == 2 ]]'
 for pr in "allow ../x" "allow Some-Org/Zzzt#1" "allow please Some-Org/Zzzt" "allow" "block a/b; ls"; do out=$(ph "$pr"); rc=$?
 ok "B12: ph ignores '$pr'"                  '(( rc == 0 )) && [[ -z $out && ! -e $T/repo && $(jq ".repos|length" $T/state.json) == 2 ]]'; done
 ok "B12: ph 'allow' from a stale window → not changed" '[[ $(PRWATCH_SESSION_ID=sid-B ph "allow Some-Org/X") == "PRWATCH REPO: not changed ("* && $(jq ".repos|length" $T/state.json) == 2 ]]'
-reset; norepos; $SS set ACT-Training/Zzzt#9 queued sha=abc >/dev/null
+reset; $SS set ACT-Training/Zzzt#9 queued sha=abc >/dev/null; norepos
 ok "B12: a repo with an existing prs key is seen: classified normally, not new_repo" '[[ $(tk $SE | jq -r ".items[0].reason") == new ]]'
+
+# B12 gate (PR 3): repo_allowed in prwatch-common.zsh; prep refuses before any clone; state set refuses a NEW key of a repo
+# that is neither allowed nor grandfathered by an existing prs key (and promotes a grandfathered repo to allowed); the tick
+# withdraws a tracked key whose repo Jack blocked; a search of exactly 100 rows (gh's page) withdraws nothing.
+ra() { (source $B/prwatch-common.zsh; repo_allowed $T/state.json "$1"); }
+reset; $SS set ACT-Training/Zzzt#9 queued sha=abc >/dev/null; seedrepo Nope-Org/Zzzt blocked; seedrepo some-org/zzzt allowed
+ok "B12: repo_allowed: allowed in any case / blocked never / unseen never / prs-key grandfather" 'ra Some-Org/Zzzt && ra SOME-ORG/ZZZT && ! ra Nope-Org/Zzzt && ! ra Other-Org/Zzzt && norepos && ra act-training/zzzt && ! ra Some-Org/Zzzt'
+reset; norepos; out=$(PRWATCH_NOW=$SE pp); rc=$?
+ok "B12: prep on a repo with no repos entry and no prs key → 25 repo not allowed, nothing cloned" '(( rc == 25 )) && [[ $out == "repo not allowed" && ! -e $T/archive && ! -e $RZL ]]'
+reset; $SS set ACT-Training/Zzzt#9 queued sha=abc >/dev/null; seedrepo ACT-Training/Zzzt blocked; out=$(PRWATCH_NOW=$SE pp); rc=$?
+ok "B12: prep on a blocked repo (even with a prs key) → 25 repo not allowed, nothing done" '(( rc == 25 )) && [[ $out == "repo not allowed" && ! -e $T/archive ]]'
+reset; $SS set ACT-Training/Zzzt#9 queued sha=abc >/dev/null; norepos; out=$(PRWATCH_NOW=$SE pp); rc=$?
+ok "B12: prep on a grandfathered repo (prs key, no repos entry) goes ahead (then the stub clone fails: 20)" '(( rc == 20 )) && [[ -e $T/archive ]]'
+reset; out=$($SS set Some-Org/Zzzt#9 queued sha=abc); rc=$?
+ok "B12: set on a key whose repo is absent → 64 repo not allowed, repo_not_allowed event, no prs entry" '(( rc == 64 )) && [[ $out == "repo not allowed" && $(st "Some-Org/Zzzt#9" status) == null && $(jq -r "select(.repo_not_allowed!=null)|.repo_not_allowed" $T/events.jsonl) == "Some-Org/Zzzt" ]]'
+seedrepo Some-Org/Zzzt blocked; out=$($SS set Some-Org/Zzzt#9 queued sha=abc); rc=$?
+ok "B12: set on a key whose repo is blocked → 64 repo not allowed, no prs entry" '(( rc == 64 )) && [[ $out == "repo not allowed" && $(st "Some-Org/Zzzt#9" status) == null ]]'
+norepos; seedrepo some-org/zzzt allowed
+ok "B12: set on a key whose repo is allowed in another case → written" '$SS set Some-Org/Zzzt#9 queued sha=abc >/dev/null && [[ $(st "Some-Org/Zzzt#9" status) == queued ]]'
+reset; $SS set ACT-Training/Zzzt#9 queued sha=abc >/dev/null; norepos
+ok "B12: grandfather: set on a new key of a repo with a prs key succeeds and promotes repos[<repo>]=allowed" '$SS set ACT-Training/Zzzt#10 queued sha=abc >/dev/null && [[ $(st "ACT-Training/Zzzt#10" status) == queued && $(rp ACT-Training/Zzzt) == allowed ]]'
+ok "B12: an existing key stays updatable once its repo is blocked (the tick withdraws through set)" 'seedrepo ACT-Training/Zzzt blocked; $SS set ACT-Training/Zzzt#9 ready sha=abc >/dev/null && [[ $(st "ACT-Training/Zzzt#9" status) == ready ]]'
+reset; ph "allow Some-Org/Zzzt" >/dev/null; tko Some-Org/Zzzt#9 $SE >/dev/null; $SS set Some-Org/Zzzt#9 ready sha=abc >/dev/null
+out=$(ph "block Some-Org/Zzzt"); jd=$(tko Some-Org/Zzzt#9 $((SE+600)) --dry-run)
+ok "B12: tracked key ready + ph 'block': a --dry-run tick classifies blocked_repo and writes nothing" '[[ $out == "PRWATCH REPO: Some-Org/Zzzt blocked - its pull requests are ignored." && $(jq -r ".items[0].reason" <<<$jd) == blocked_repo && $(st "Some-Org/Zzzt#9" status) == ready ]]'
+: > $T/gh-calls.log; j=$(tko Some-Org/Zzzt#9 $((SE+900)))
+ok "B12: tracked key ready + ph 'block' → next tick withdraws it (withdrawn_from=ready), blocked_repo row with an empty author, no pr view" '[[ $(jq -c ".items[0]|[.key,.reason,.prev,.author]" <<<$j) == "[\"Some-Org/Zzzt#9\",\"blocked_repo\",\"ready\",\"\"]" && $(st "Some-Org/Zzzt#9" status) == withdrawn && $(st "Some-Org/Zzzt#9" withdrawn_from) == ready ]] && ! grep -q "pr view" $T/gh-calls.log'
+out=$(ph "allow some-org/zzzt")
+ok "B12: ph 'allow some-org/zzzt' (lower case) → next tick on Some-Org/Zzzt#9 → new, queued" '[[ $out == "PRWATCH REPO: "*" allowed - "* && $(tko Some-Org/Zzzt#9 $((SE+1800)) | jq -r ".items[0].reason") == new && $(st "Some-Org/Zzzt#9" status) == queued ]]'
+reset; j=$(PRWATCH_ONLY_AUTHOR="ev;il" tko Other-Org/Zzzt#3 $SE)
+ok "B12: new_repo row carries the author stripped to [A-Za-z0-9-] ('ev;il' → evil), the notice likewise" '[[ $(jq -c ".items[0]|[.reason,.author]" <<<$j) == "[\"new_repo\",\"evil\"]" && $(jq -r ".notices[0]" <<<$j) == "First PR from Other-Org/Zzzt by evil: type allow Other-Org/Zzzt or block Other-Org/Zzzt" ]]'
+reset; $SS set ACT-Training/Zzzt#9 ready sha=abc miss=1 >/dev/null; seedrepo Nope-Org/Zzzt blocked     # miss=1: one more miss would withdraw it
+k100=( "Nope-Org/Zzzt#"{1..100} ); j=$(tko ${(j:,:)k100} $SE)
+ok "B12: a search of exactly 100 rows → withdrawn pass skipped: the tracked key absent from the list stays ready (miss kept), notice present" '[[ $(jq ".items|length" <<<$j) == 100 && $(st "ACT-Training/Zzzt#9" status) == ready && $(st "ACT-Training/Zzzt#9" miss) == 1 ]] && jq -r ".notices[]" <<<$j | grep -qx "search truncated at 100; nothing withdrawn this check"'
+for sc in buildrun ngtest dotnettest; do
+ok "$sc: sandbox re-exec excludes PRWATCH_LOGIN and PRWATCH_LOCK_JSON" "head -20 $B/prwatch-$sc.sh | grep -q PRWATCH_LOGIN && head -20 $B/prwatch-$sc.sh | grep -q PRWATCH_LOCK_JSON"; done
 
 # --- installed copy must match the repo (tests run the installed scripts)
 if [[ -d $REPO ]]; then

@@ -13,6 +13,8 @@ if [[ ${1:-} == --sweep ]]; then targets=( $PRW/work/*(/Nm+3) ); [[ -n ${PRWATCH
 else okkey "${1:-}" || exit 64; targets=( $PRW/work/$(wt_prefix $1)*(/N) ); fi
 for t in $targets; do
   if [[ $t == *-build ]]; then rm -rf -- $t            # standalone copy: never run git in it
+  # MIGRATION (remove after v1.0.0; added 2026-10-29): old owner-less worktree names (<repo>-pr<n>-<sha7>, from before
+  # keys carried an owner) match no wt_prefix, so only --sweep (age > 3 days) ever removes them; r is then <repo>.
   else r=${${t:t}%-pr[0-9]##-[0-9a-f](#c7)}            # <owner>__<repo> (old owner-less names: <repo>) = the clone under repos/
        git -c core.hooksPath=/dev/null -C $PRW/repos/$r worktree remove --force $t 2>/dev/null || rm -rf -- $t; fi
 done

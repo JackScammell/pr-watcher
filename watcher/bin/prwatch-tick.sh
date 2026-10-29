@@ -60,8 +60,11 @@ else                               # every repo the login can see, no owner filt
   list=$(gh search prs --state open --limit 100 --json number,repository,author -- "user-review-requested:@me" 2>/dev/null) \
     || { $PRW/bin/prwatch-notify.sh error network; out '{"status":"error","kind":"search_failed"}'; }
 fi
+trunc=0; (( $(jq 'length' <<<$list 2>/dev/null || print 0) == 100 )) && trunc=1     # exactly the limit: the page is partial
 # 6. classify (first match wins) — table in plan §5.2. A search row is untrusted: the key is validated before it is
-#    remembered, looked up or written; a repo that is blocked or never seen gets no gh pr view and no state write.
+#    remembered, looked up or written; a repo that is blocked or never seen gets no gh pr view. The gate is
+#    repo_allowed (prwatch-common.zsh), the same predicate prep and state set apply. A tracked PR of a repo Jack has
+#    since blocked is withdrawn here (reason blocked_repo), so decide never sees it.
 items=(); seen=(); notices=()
 for pr in ${(f)"$(jq -c '.[]' <<<$list)"}; do
   n=$(jq -r '.number // ""' <<<$pr); R=$(jq -r '.repository.nameWithOwner // ""' <<<$pr); key="$R#$n"
@@ -69,18 +72,19 @@ for pr in ${(f)"$(jq -c '.[]' <<<$list)"}; do
   seen+=$key
   e() { jq -r --arg k $key ".prs[\$k].$1 // \"$2\"" $F; }
   st=$(e status absent)
-  rp=$(jq -r --arg r $R '.repos[$r] // ""' $F)
-  if   [[ $rp == blocked ]]; then r=blocked_repo
-  elif [[ -z $rp ]] && ! jq -e --arg r $R '.prs|keys|map(select(startswith($r+"#")))|length>0' $F >/dev/null; then r=new_repo
-  else r=""; fi
+  if repo_allowed $F $R; then r=""
+  elif jq -e --arg r ${R:l} '(.repos // {})|with_entries(.key|=ascii_downcase)|has($r)' $F >/dev/null; then r=blocked_repo   # an entry that is not "allowed"
+  else r=new_repo; fi
   if [[ -n $r ]]; then               # source gate: blocked, or first sighting (day-1 rule: any prs key for the repo = seen)
-    au=$(jq -r '.author.login // ""' <<<$pr)
-    items+=("$(jq -nc --arg k $key --arg r $r --arg st $st --arg a "$au" '{key:$k,sha:"",reason:$r,prev:$st,size:0,title:"",author:$a}')")
-    if [[ $r == new_repo ]]; then
-      au=${au//[^A-Za-z0-9-]/}
+    au=""
+    if [[ $r == new_repo ]]; then    # the author is read only here, and only its login characters survive
+      au=$(jq -r '.author.login // ""' <<<$pr); au=${au//[^A-Za-z0-9-]/}
       notices+=("$(jq -nc --arg l "First PR from $R by $au: type allow $R or block $R" '$l')")
       (( ! DRY )) && $PRW/bin/prwatch-notify.sh question $key
+    elif (( ! DRY )) && [[ $st != (absent|withdrawn|closed|posted|skipped) ]]; then
+      $ST set $key withdrawn withdrawn_from=$st >/dev/null     # tracked, now blocked: out of the queue (an existing key may still be set)
     fi
+    items+=("$(jq -nc --arg k $key --arg r $r --arg st $st --arg a "$au" '{key:$k,sha:"",reason:$r,prev:$st,size:0,title:"",author:$a}')")
     continue
   fi
   v=$(gh pr view $n -R $R --json headRefOid,isDraft,state,title,author,files 2>/dev/null) || continue
@@ -119,9 +123,11 @@ for pr in ${(f)"$(jq -c '.[]' <<<$list)"}; do
   items+=("$(jq -nc --arg k $key --arg s $sha --arg r $r --arg st $st --argjson z $size --argjson t "$(jq '{title:.title[0:120],author:.author.login}' <<<$v)" '{key:$k,sha:$s,reason:$r,prev:$st,size:$z}+$t')")
 done
 # 7. withdrawn pass: tracked in an active state but missing from the search on TWO consecutive ticks → withdrawn
-#    (one notice each). The first miss only records miss=1, so an empty or partial search result withdraws nothing.
+#    (one notice each). The first miss only records miss=1, so an empty search result withdraws nothing; a search
+#    that filled its 100-row page is partial and skips the pass altogether (one notice).
 #    Not in ONLY test mode (new_repo notices above are added in every mode).
-if [[ -z $ONLY ]] && (( ! DRY )); then
+(( trunc )) && notices+=('"search truncated at 100; nothing withdrawn this check"')
+if [[ -z $ONLY ]] && (( ! DRY && ! trunc )); then
   for kv in ${(f)"$(jq -r '.prs|to_entries[]|select(.value.status|test("^(queued|ready|asking|awaiting_decision|go_ahead_pending|reviewing|failed)$"))|"\(.key) \(.value.status) \(.value.miss // 0)"' $F)"}; do
     [[ -n $kv ]] || continue; k=${kv%% *}; kst=${${kv#* }%% *}; km=${kv##* }
     (( ${seen[(Ie)$k]} )) && continue

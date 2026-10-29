@@ -1,6 +1,6 @@
-# prwatch-common.zsh — sourced by the scripts that need the clock or the window (after their `emulate -L zsh` line) and
-# by the launcher; never
-# executed, so it is correctly absent from the guard canon. One definition of the session window and the clock.
+# prwatch-common.zsh — sourced by every script (after its `emulate -L zsh` line) and by the launcher, for the one grammar
+# (keys, names, the repo gate) and the one clock (window, now_epoch); never executed, so it is correctly absent from
+# the guard canon.
 #   Window (integer seconds from the lock's started_epoch): new councils may start while elapsed < START_LIMIT (7 h 30);
 #   the session ends at END (8 h). The launcher's watchdog arms at WATCHDOG_ARM and may run on up to END+WATCHDOG_EXTEND
 #   while a review or question is live.
@@ -40,7 +40,8 @@ KEY_PAT="$OWNER_PAT/$REPO_PAT\\#$NUM_PAT"                 # \# : a literal hash,
 okkey()   { emulate -L zsh; setopt extendedglob; [[ $1 == ${~KEY_PAT} ]] }                      # 0 = a well-formed key; prints nothing
 okrepo()  { emulate -L zsh; setopt extendedglob; [[ $1 == ${~OWNER_PAT}/${~REPO_PAT} ]] }       # 0 = a well-formed <owner>/<repo>
 oklogin() { emulate -L zsh; setopt extendedglob; [[ $1 == ${~OWNER_PAT} ]] }                    # 0 = a well-formed GitHub login (same grammar as an owner)
-# key_split <key> — sets o, repo, n in the caller's scope (no local on purpose). Call only after okkey.
+# key_split <key> — injects o, repo, n into the caller's scope (no local on purpose). Call only after okkey. A caller
+# that uses those names must `local o repo n` first (as wt_* do) or they land in the script's scope.
 key_split() { local rest; o=${1%%/*}; rest=${1#*/}; repo=${rest%%\#*}; n=${rest##*\#}; }
 # Worktree and archive names are built here and nowhere else ("__" is unambiguous: an owner cannot contain "_").
 #   wt_prefix <key>              → <owner>__<repo>-pr<n>-            (what cleanup and harness-abort match on)
@@ -49,5 +50,11 @@ key_split() { local rest; o=${1%%/*}; rest=${1#*/}; repo=${rest%%\#*}; n=${rest#
 wt_prefix()    { local o repo n; key_split $1; print -r -- "${o}__${repo}-pr${n}-"; }
 wt_name()      { local o repo n; key_split $1; print -r -- "${o}__${repo}-pr${n}-${2[1,7]}"; }
 archive_name() { local o repo n; key_split $1; print -r -- "${3:-$(date +%F)}-${o:l}-${repo:l}-pr${n}-round${2}"; }
-WT_PAT='[A-Za-z0-9-]##__[A-Za-z0-9._-]##-pr[0-9]##-[0-9a-f](#c7)(|-build)'   # a worktree basename
 WT_GLOB='*__*-pr[0-9]*-[0-9a-f]*'                                            # sweeps and kill_strays: $PRW/work/${~WT_GLOB}
+# repo_allowed <state.json> <owner/repo> — the one source gate (exit status is the predicate; prints nothing):
+#   repos[R] == "allowed", or no repos entry for R and some prs key starts with "R#" (day-1 rule: a tracked PR = seen).
+#   "blocked" never passes; an unreadable file never passes. Case-insensitive: repos keys, prs keys and R are all
+#   compared lower-cased (GitHub owners and repos are). prep, state set and tick all ask this and nothing else.
+repo_allowed() { /usr/bin/jq -e --arg r "${2:l}" '((.repos // {}) | with_entries(.key |= ascii_downcase)) as $rp
+  | if ($rp | has($r)) then $rp[$r] == "allowed"
+    else ([(.prs // {}) | keys[] | ascii_downcase | select(startswith($r + "#"))] | length > 0) end' "$1" >/dev/null 2>&1 }

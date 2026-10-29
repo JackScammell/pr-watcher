@@ -2,6 +2,8 @@
 
 > Note (2026-10-29): docs/plan-v2.md supersedes the parts of these notes that describe the daily cap and its override, the 08:00–16:00 weekday window, the ACT-Training-only inbox and the review council dispatch, as its four PRs land. Kept unchanged otherwise.
 
+> Note (2026-10-29, plan-v2 PR 3): worktrees that were in flight when the watcher was upgraded are orphaned and swept after 3 days.
+
 Source of truth: `/Users/jack/Documents/pr-review-watcher-plan/plans/plan.md`, Appendix A.1–A.10. The appendix blocks were extracted mechanically, then diffed against the executed harness copies:
 - `r31test/home/prwatch/bin` for tick, state and notify;
 - `r3test/` for post, prep, cleanup and guard;
