@@ -1,8 +1,13 @@
 # PR watcher
 
-A Claude Code session that runs on your Mac between 08:00 and 16:00 on weekdays. Every 15 minutes it looks for
-open ACT-Training pull requests where you are personally requested as reviewer, reviews each one with a council
-of reviewer agents, and pings you with a macOS notification when a draft review is ready.
+A Claude Code session that runs on your Mac for eight hours from the moment you start it. Every 15 minutes it
+looks for open pull requests, in any organisation your GitHub login can see, where you are personally requested as
+reviewer, reviews each one with a council of reviewer agents, and pings you with a macOS notification when a draft
+review is ready. The first pull request from a repository it has not seen before waits until you type
+`allow <owner>/<repo>` (or `block <owner>/<repo>`) in the console; a repository with no `repos` entry but a tracked
+pull request counts as allowed and is recorded as `allowed` the first time a new pull request of that repo is queued.
+The launcher's "Organisations your login can see" line is information only, not a gate: a repository is reviewed
+because you allowed it (or it was already tracked), not because of the organisation it belongs to.
 
 **Nothing is posted to GitHub until you pick an action in the console, approve the permission prompt, and click
 Post on a Mac dialog.**
@@ -15,7 +20,7 @@ git clone https://github.com/JackScammell/pr-watcher.git ~/Documents/GitHub/pr-w
 ```
 
 `install.sh` copies `watcher/` into `~/prwatch` (leaving its `state/`, `repos/`, `cache/`, `work/` alone) and
-puts **PR Watcher.command** on your Desktop. Double-click it each morning.
+puts **PR Watcher.command** on your Desktop. Double-click it to start a session.
 
 Re-run `install.sh` after pulling changes, with the watcher closed. If you have locked `~/prwatch` (`chflags uchg`,
 see `watcher/README.md`), unlock it first; `install.sh` refuses while it is locked. Afterwards run
@@ -32,7 +37,7 @@ see `watcher/README.md`), unlock it first; `install.sh` refuses while it is lock
 | `docs/plan.md` | The council-approved plan (Revision 3.1) this was built from |
 | `docs/fix-background-agents.md` | The 2026-09-29 background-reviewer incident: cause, fix, safety net, verification |
 | `docs/plan-v2.md` | The council-approved v2 plan: review engine, cross-org inbox, 8-hour window, repo files |
-| `docs/history/cap-override.md` | `cap N`: raising the daily review cap for one day, and how the scripts enforce it (superseded; kept for the record) |
+| `docs/history/cap-override.md` | `cap N`: the one-day review allowance and how the scripts enforced it (retired by the v2 plan; kept for the record) |
 | `docs/windows-port.md` | The council-approved plan for running the watcher on Windows (WSL2), from this same repo |
 | `docs/windows-wsl.md` | Installing WSL2 and the `PRWatcher` distro on Windows (install chapter; the rest comes with the port) |
 | `watcher/test/harness/` | `run.sh` (offline safety-net tests) and `live-check.sh` (real Claude Code check after updates) |

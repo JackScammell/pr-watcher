@@ -12,18 +12,20 @@
 # Log: <archive>/reviews/ng-test-<app>.log (untrusted PR output). Call with Bash timeout 2400000.
 NODE_BIN=( "$HOME/Library/Application Support/Herd/config/nvm/versions/node/"*/bin(N-/nOn) ); NODE_BIN=${NODE_BIN[1]:-}
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH="${NODE_BIN:+$NODE_BIN:}/usr/bin:/bin" \
-  LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 NODE_BIN="$NODE_BIN" ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
+  LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 NODE_BIN="$NODE_BIN" ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_' | /usr/bin/grep -v -e '^PRWATCH_LOGIN=' -e '^PRWATCH_LOCK_JSON=')"}:#} /bin/zsh "$0" "$@"
+# PR code runs under this script: PRWATCH_LOGIN and PRWATCH_LOCK_JSON are filtered out of the re-exec above on purpose.
 emulate -L zsh; set -u; setopt extendedglob nullglob
-PRW=$HOME/prwatch; S=$PRW/state; LIMIT=1500                     # seconds before the whole run is killed
+PRW=$HOME/prwatch; source $PRW/bin/prwatch-common.zsh
+S=$PRW/state; LIMIT=1500                                        # seconds before the whole run is killed
 [[ -n ${PRWATCH_TESTMODE:-} ]] && S=${PRWATCH_STATE_DIR:-$PRW/test/state}
 key=${1:-}; app=${2:-}; inc=${3:-}
-[[ $key == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## && $app == (frontend|learner) ]] || { print "bad arguments"; exit 64; }
+okkey "$key" && [[ $app == (frontend|learner) ]] || { print "bad arguments"; exit 64; }
 [[ -z $inc || $inc == [A-Za-z0-9/._-]## && $inc != *..* && $inc != /* ]] || { print "bad spec-dir"; exit 64; }
 [[ "$(jq -r .session_id $S/session.lock 2>/dev/null)" == "${PRWATCH_SESSION_ID:-x}" ]] || { print superseded; exit 6; }
 sha=$(jq -r --arg k $key '.prs[$k].sha // ""' $S/state.json); arch=$(jq -r --arg k $key '.prs[$k].archive // ""' $S/state.json)
 [[ $sha == [0-9a-f](#c40) && -d $arch ]] || { print "no state for $key"; exit 65; }
 [[ "$(jq -r '.is_laravel // false' $arch/input/profile.json 2>/dev/null)" == true ]] && { print "Laravel: not run"; exit 64; }
-k=${key#ACT-Training/}; bw=$PRW/work/${k%%\#*}-pr${k##*\#}-${sha[1,7]}-build
+bw=$PRW/work/$(wt_name $key $sha)-build
 [[ -f $bw/$app/karma.conf.js && -n $NODE_BIN ]] || { print "no $app karma config or node"; exit 65; }
 bw=${bw:A}; NB=${NODE_BIN:A}
 HS=( $HOME/.cache/puppeteer/chrome-headless-shell/*/chrome-headless-shell-mac*/chrome-headless-shell(N-*nOn) ); HS=${HS[1]:-}

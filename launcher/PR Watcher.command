@@ -1,31 +1,44 @@
 #!/bin/zsh -l
-# PR Watcher launcher — double-click to start today's watcher.
+# PR Watcher launcher — double-click to start a watcher session (8 hours from now).
 set -u
 PRW="$HOME/prwatch"
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-[[ -n "${PRWATCH_TESTMODE:-}" && -n "${PRWATCH_STUB_BIN:-}" ]] && PATH="$PRWATCH_STUB_BIN:$PATH"   # test harness only
+source "$PRW/bin/prwatch-common.zsh"                           # window constants (START_LIMIT, END, WATCHDOG_*)
+SE=$(date +%s); CLAUDE_BIN=""                                  # session start, in epoch seconds: the only clock the window uses
+if [[ -n "${PRWATCH_TESTMODE:-}" ]]; then                      # test harness only
+  [[ -n "${PRWATCH_STUB_BIN:-}" ]] && { PATH="$PRWATCH_STUB_BIN:$PATH"; [[ -x "$PRWATCH_STUB_BIN/claude" ]] && CLAUDE_BIN="$PRWATCH_STUB_BIN/claude"; }
+  [[ -n "${PRWATCH_TEST_STARTED_EPOCH:-}" ]] && SE=$PRWATCH_TEST_STARTED_EPOCH   # the only place this name appears
+fi
 print -n "\e]0;PR watcher\a"                                   # window title (claude may overwrite it)
 SD="$PRW/state"; [[ -n "${PRWATCH_TESTMODE:-}" ]] && SD="${PRWATCH_STATE_DIR:-$PRW/test/state}"
 mkdir -p "$PRW/state" "$SD"                                    # state/activity always lives in $PRW/state (hooks touch it)
 say_err() { "$PRW/bin/prwatch-notify.sh" error launcher; print -r -- "$1"; print -n "Press any key to close."; read -k1; exit 1; }
+[[ "$SE" == <-> ]] || say_err "Bad session start time."
 
 # 1. Find claude >= 2.1. /usr/local/bin/claude on this Mac is an OLD 1.0.x npm install — never prefer it.
 min_ok() { local v; v=$("$1" --version 2>/dev/null) || return 1; v=${v%% *}
   local -a p; p=(${(s:.:)v}); (( p[1] > 2 || (p[1] == 2 && p[2] >= 1) )) }
-CLAUDE_BIN=""
-for c in "$HOME/Library/Application Support/Herd/config/nvm/versions/node/"*/bin/claude(N-nOn) \
-         "$HOME/.local/bin/claude" "$HOME/.claude/local/claude" "${commands[claude]:-}" /usr/local/bin/claude; do
-  [[ -n "$c" && -x "$c" ]] && min_ok "$c" && { CLAUDE_BIN="$c"; break; }
-done
+if [[ -z "$CLAUDE_BIN" ]]; then
+  for c in "$HOME/Library/Application Support/Herd/config/nvm/versions/node/"*/bin/claude(N-nOn) \
+           "$HOME/.local/bin/claude" "$HOME/.claude/local/claude" "${commands[claude]:-}" /usr/local/bin/claude; do
+    [[ -n "$c" && -x "$c" ]] && min_ok "$c" && { CLAUDE_BIN="$c"; break; }
+  done
+fi
 [[ -n "$CLAUDE_BIN" ]] || say_err "Could not find Claude Code 2.1 or newer."
 export PATH="${CLAUDE_BIN:h}:/usr/local/share/dotnet:$HOME/.dotnet/tools:$PATH"   # node for claude and ng; dotnet for builds
 print -r -- "claude: $CLAUDE_BIN ($("$CLAUDE_BIN" --version))"
 
-# 2. GitHub login + org access, using the REAL gh config (the session gets an empty one).
+# 2. GitHub login, using the REAL gh config (the session gets an empty one). The login is the only identity the
+#    scripts use (PRWATCH_LOGIN): the inbox is every repo it can see, so the org list is information only.
 GH_CONFIG_DIR="$HOME/.config/gh" gh auth status >/dev/null 2>&1 || say_err "GitHub CLI not logged in — run: gh auth login, then double-click again."
-GH_CONFIG_DIR="$HOME/.config/gh" gh api orgs/ACT-Training --silent 2>/dev/null || say_err "GitHub can't see ACT-Training (SSO authorisation?) — check gh auth."
+LOGIN=$(GH_CONFIG_DIR="$HOME/.config/gh" gh api user --jq .login 2>/dev/null)
+oklogin "$LOGIN" || say_err "GitHub did not return a usable login — check gh auth."
+export PRWATCH_LOGIN="$LOGIN"
+orgs=$(GH_CONFIG_DIR="$HOME/.config/gh" gh api user/orgs --jq '.[].login' 2>/dev/null | paste -sd' ' -)
+print -r -- "Signed in as $LOGIN. Organisations your login can see: ${orgs:-none}"
 
-# 3. Single-instance lock (test mode: the lock lives where the scripts look for it).
+# 3. Single-instance lock (test mode: the lock lives where the scripts look for it). started_epoch is the session clock:
+#    every script measures the window from it; PRWATCH_STARTED_EPOCH / PRWATCH_LOCK_JSON are outputs only, never read back.
 export PRWATCH_SESSION_ID="$(uuidgen)" PRWATCH_PID=$$
 LOCK="$SD/session.lock"
 if [[ -f "$LOCK" ]]; then
@@ -35,13 +48,15 @@ if [[ -f "$LOCK" ]]; then
     [[ "$a" == [nN] ]] && exit 0
   fi
 fi
-/usr/bin/jq -n --arg t "$PRWATCH_SESSION_ID" --argjson p $$ --arg s "$(date -Iseconds)" \
-   '{session_id:$t,pid:$p,started:$s}' > "$LOCK.tmp" && mv "$LOCK.tmp" "$LOCK" || say_err "Could not write the lock file."
+/usr/bin/jq -n --arg t "$PRWATCH_SESSION_ID" --argjson p $$ --arg s "$(date -r "$SE" -Iseconds)" --argjson e "$SE" --arg l "$LOGIN" \
+   '{session_id:$t,pid:$p,started:$s,started_epoch:$e,login:$l}' > "$LOCK.tmp" && mv "$LOCK.tmp" "$LOCK" || say_err "Could not write the lock file."
+export PRWATCH_STARTED_EPOCH=$SE PRWATCH_LOCK_JSON="$(/usr/bin/jq -c . "$LOCK")"
 
 # 4. Keep the Mac from idle-sleeping while Claude runs (closing the lid still sleeps).
 caffeinate -i -w $$ & CAF=$!
 
 # 5. Watchdog, independent of the Claude session (heartbeat = $PRW/state/activity, touched by hooks and scripts).
+#    The window comes from prwatch-tick.sh --window (a pure read: it never touches the heartbeat it is judged by).
 touch "$PRW/state/activity"
 (
   trap 'kill $SL 2>/dev/null; exit 0' TERM
@@ -50,22 +65,24 @@ touch "$PRW/state/activity"
     sleep 300 & SL=$!; wait $SL; now=$(date +%s)
     (( now - last > 600 )) && touch "$PRW/state/activity"      # we were asleep: restart the clock
     last=$now
-    hm=$(date +%H%M); dow=$(date +%u)
-    (( dow <= 5 && 10#$hm >= 815 )) || continue
-    [[ -f "$SD/stopped-$(date +%F)" ]] && continue               # Jack typed "stop"
-    if (( 10#$hm >= 1600 )); then                               # after 16:00 only while a review/question is live
-      (( 10#$hm < 1740 )) || continue
-      /usr/bin/jq -e '[.prs[]?|select(.status=="reviewing" or .status=="asking")]|length>0' "$SD/state.json" >/dev/null 2>&1 || continue
-    fi
+    [[ -f "$SD/stopped-$PRWATCH_SESSION_ID" ]] && continue      # Jack typed "stop"
+    elapsed=$(( now - SE )); (( elapsed >= WATCHDOG_ARM )) || continue
+    w=$("$PRW/bin/prwatch-tick.sh" --window 2>/dev/null); wst=$(/usr/bin/jq -r '.status // ""' <<<"$w" 2>/dev/null)
+    case "$wst" in
+      in_window|start_closed) ;;
+      session_over)                                             # after END only while a review/question is live, up to END+WATCHDOG_EXTEND
+        (( elapsed < END + WATCHDOG_EXTEND )) || continue
+        /usr/bin/jq -e '[.prs[]?|select(.status=="reviewing" or .status=="asking")]|length>0' "$SD/state.json" >/dev/null 2>&1 || continue ;;
+      *) continue ;;                                            # error or unknown: nothing to judge
+    esac
     age=$(( now - $(stat -f %m "$PRW/state/activity") ))
     (( age > 1800 )) && "$PRW/bin/prwatch-notify.sh" stuck watchdog   # throttled to 1 per 30 min inside notify
   done
 ) & WD=$!
 
-(( $(date +%u) >= 6 )) && print "Note: it's the weekend — the watcher only checks Monday to Friday."
+print "Runs for 8 hours from now (new reviews for the first 7½); type 'stop' to finish early."
 print "While a review runs (up to ~45 min) this window is busy; what you type waits. Esc stops that review (it resumes at the next check)."
-print "Type 'stop' to finish for the day, 'pause 60' to skip checks for an hour, 'd' to be asked about waiting drafts now,"
-print "'cap 8' to allow up to 8 reviews today (normally 6, at most 12)."   # numbers: harness checks them against prwatch-state.sh
+print "Type 'stop' to finish the session, 'pause 60' to skip checks for an hour, 'd' to be asked about waiting drafts now."
 print "At permission prompts choose 'Yes' — never 'Yes, and don't ask again'."
 
 cd "$PRW" || say_err "Missing $PRW"
@@ -86,8 +103,10 @@ export PATH="$PRW/shims:$PATH"                # mktemp shim: sandboxed scripts g
 rc=$?
 kill $WD $CAF 2>/dev/null                    # no watchdog / caffeinate once Claude has exited
 print "Watcher stopped at $(date +%H:%M) (exit $rc)."
-hm=$(date +%H%M)
-(( $(date +%u) <= 5 && 10#$hm < 1600 )) && [[ ! -f "$SD/stopped-$(date +%F)" ]] && "$PRW/bin/prwatch-notify.sh" error session-ended
+# Early exit notice: only if the session was still running (not over, not stopped by Jack).
+w=$("$PRW/bin/prwatch-tick.sh" --window 2>/dev/null); wst=$(/usr/bin/jq -r '.status // ""' <<<"$w" 2>/dev/null)
+[[ "$wst" != session_over && ! -f "$SD/stopped-$PRWATCH_SESSION_ID" && "$(/usr/bin/jq -r .session_id "$LOCK" 2>/dev/null)" == "$PRWATCH_SESSION_ID" ]] \
+  && "$PRW/bin/prwatch-notify.sh" error session-ended     # not when a newer window has taken the lock over
 # Only remove the lock if it is still ours (a newer window may have taken over).
 [[ "$(/usr/bin/jq -r .session_id "$LOCK" 2>/dev/null)" == "$PRWATCH_SESSION_ID" ]] && rm -f "$LOCK"
 print -n "Press any key to close this window."; read -k1

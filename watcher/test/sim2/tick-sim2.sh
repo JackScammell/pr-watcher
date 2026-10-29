@@ -1,16 +1,22 @@
 #!/bin/zsh
 # Revision 2 classification table (plan §5.2 step 5), first match wins. Stubbed gh + pid/timeline.
+# v2 (plan-v2 D16): state.repos[<owner>/<repo>] is read first — "blocked" → blocked_repo; an unseen repo (no repos
+# entry and no prs key for that owner/repo) → new_repo, with no gh pr view (the row prints st=absent draft=- size=0).
 set -u
 S=${STATE:-./state.json}
 MYPID=${PRWATCH_PID:-999}
 gh() { case "$1 $2" in
   "search prs") cat search.json;;
-  "pr view") jq --argjson n $3 '.[] | select(.number==$n)' view.json;; esac; }
+  "pr view") jq --arg r "$3" --argjson n $4 '.[] | select(.nameWithOwner==$r and .number==$n)' view.json;; esac; }
 pid_alive() { [[ $1 == LIVE ]]; }                    # stub for kill -0
 rerequested_after_post() { [[ $1 == *"#11" ]]; }     # stub: timeline shows re-request after posted_at only for #11
 gh search prs | jq -c '.[]' | while read -r pr; do
-  n=$(jq -r .number <<<"$pr"); key="$(jq -r .repository.nameWithOwner <<<"$pr")#$n"
-  v=$(gh pr view $n); sha=$(jq -r .headRefOid <<<"$v"); draft=$(jq -r .isDraft <<<"$v")
+  n=$(jq -r .number <<<"$pr"); repo=$(jq -r .repository.nameWithOwner <<<"$pr"); key="$repo#$n"
+  rs=$(jq -r --arg r "$repo" '.repos[$r] // ""' $S)
+  seen=$(jq -r --arg r "$repo" '[.prs | keys[] | select(startswith($r + "#"))] | length' $S)
+  if [[ $rs == blocked ]]; then echo "$key st=absent draft=- size=0 -> blocked_repo"; continue; fi
+  if [[ -z $rs && $seen == 0 ]]; then echo "$key st=absent draft=- size=0 -> new_repo"; continue; fi
+  v=$(gh pr view $repo $n); sha=$(jq -r .headRefOid <<<"$v"); draft=$(jq -r .isDraft <<<"$v")
   size=$(( $(jq -r .additions <<<"$v") + $(jq -r .deletions <<<"$v") ))
   e() { jq -r --arg k "$key" ".prs[\$k].$1 // \"$2\"" $S; }
   st=$(e status absent); ssha=$(e sha ""); opid=$(e owner_pid ""); att=$(e attempts 0)

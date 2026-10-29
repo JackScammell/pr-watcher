@@ -118,5 +118,23 @@
     "repository": {
       "nameWithOwner": "ACT-Training/VisionApp"
     }
+  },
+  {
+    "number": 1,
+    "repository": {
+      "nameWithOwner": "JackScammell/pr-watcher"
+    },
+    "author": {
+      "login": "jack"
+    }
+  },
+  {
+    "number": 10,
+    "repository": {
+      "nameWithOwner": "Some-Org/VisionApp"
+    },
+    "author": {
+      "login": "someone"
+    }
   }
 ]
