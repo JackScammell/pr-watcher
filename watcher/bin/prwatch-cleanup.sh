@@ -1,7 +1,7 @@
 #!/bin/zsh
 # prwatch-cleanup.sh <key> | --sweep   — removes both worktrees for a PR (or any older than 3 days; the sweep also
 # archives old agenthook markers and deletes stopped-*/eod-done-* session files older than two days)
-[[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/opt/homebrew/bin:/usr/bin:/bin PRWATCH_CLEAN=1 \
+[[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" ${TZ:+TZ=$TZ} PATH=/opt/homebrew/bin:/usr/bin:/bin PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob nullglob
 PRW=$HOME/prwatch; export GIT_CONFIG_GLOBAL=$PRW/config/gitconfig GIT_CONFIG_NOSYSTEM=1

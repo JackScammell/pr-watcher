@@ -1,7 +1,7 @@
 #!/bin/zsh
 # prwatch-prep.sh <repo> <N> <sha40> <round>  → prints the archive dir. Unsandboxed (excludedCommands); ALL network is here.
 # Checks the session first (nothing else is done if it fails): 27 = window closed for new reviews (7 h 30 after the
-# launcher's started_epoch, or no started_epoch), 25 = session or login precondition failed (another session's lock,
+# launcher's started_epoch), 25 = session or login precondition failed (another session's lock, no started_epoch,
 # unreadable state). 20-23 = clone/fetch problems below.
 # Call with Bash timeout 2400000 (first clone + restore can take many minutes).
 NODE_BIN=( "$HOME/Library/Application Support/Herd/config/nvm/versions/node/"*/bin(N-/nOn) ); NODE_BIN=${NODE_BIN[1]:-}
@@ -24,9 +24,9 @@ if [[ -z ${PRWATCH_TESTMODE:-} || -n ${PRWATCH_SESSION_ID:-} ]]; then
   $PRW/bin/prwatch-state.sh check >/dev/null || { print "could not read state"; exit 25; }
   [[ "$(jq -r .session_id $S/session.lock 2>/dev/null)" == "${PRWATCH_SESSION_ID:-x}" ]] || { print "superseded"; exit 25; }
   # PRWATCH_LOGIN (PR 3): an empty login will also be exit 25 here.
-  se=$(started_epoch $S) || { print "window closed for new reviews"; exit 27; }
+  se=$(started_epoch $S) || { print "no session start"; exit 25; }
   now=$(now_epoch) || { print -r -- "$now"; exit 64; }
-  (( now - se < START_LIMIT )) || { print "window closed for new reviews"; exit 27; }     # M14: skip this check
+  (( now - se < START_LIMIT )) || { print "window closed for new reviews"; exit 27; }
 fi
 export GH_CONFIG_DIR=$HOME/.config/gh
 # git hardening: watcher-owned global config (gh credential helper only), no system config, no hooks, no fsmonitor

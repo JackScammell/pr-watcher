@@ -400,7 +400,7 @@ ok "B1.17: unparseable PRWATCH_NOW → 64 'bad PRWATCH_NOW'" '(out=$(PRWATCH_NOW
 # B1.18 --window is a pure read; prep enforces the window; a recreated lock is PRWATCH_LOCK_JSON + recreated
 reset; lockfor sid-B; HB=$PRW/state/activity; mkdir -p $PRW/state; touch -t 202601010000 $HB; hb0=$(stat -f %m $HB)
 win $SE >/dev/null; win $SE --dry-run >/dev/null
-ok "B1.18: --window leaves the heartbeat alone" '(( $(stat -f %m $HB) == hb0 ))'
+ok "B1.18: --window leaves the heartbeat alone" '(( $(stat -f %m $HB) == hb0 ))'; touch $HB     # restore the live heartbeat
 ok "B1.18: --window under another session's lock: no notice, no lock change" '[[ ! -e $T/notify.log && $(jq -r .session_id $T/session.lock) == sid-B && $(jq "has(\"recreated\")" $T/session.lock) == false ]]'
 pp() { PRWATCH_ARCHIVE_DIR=$T/archive PRWATCH_GIT_BASE=$T/nogit $B/prwatch-prep.sh Zzzt 9 0123456789abcdef0123456789abcdef01234567 1 2>&1; }
 WX=$(grep 'window closed for new reviews' $B/prwatch-prep.sh | grep -oE 'exit [0-9]+' | grep -oE '[0-9]+' | sort -u)   # the one window exit code
@@ -408,7 +408,7 @@ ok "B1.18: prep defines one window exit code" '[[ $WX == <-> ]] && (( WX >= 20 &
 reset; out=$(PRWATCH_NOW=$((SE+27060)) pp); rc=$?
 ok "B1.18: prep at T+7h31 → window closed, nothing done" '(( rc == WX )) && [[ $out == "window closed for new reviews" && ! -e $T/archive ]]'
 reset; print '{"session_id":"sid-A","pid":1}' > $T/session.lock; out=$(PRWATCH_NOW=$SE pp); rc=$?
-ok "B1.18: prep without started_epoch → window closed" '(( rc == WX )) && [[ ! -e $T/archive ]]'
+ok "B1.18: prep without started_epoch → 25 no session start, nothing done" '(( rc == 25 )) && [[ $out == "no session start" && ! -e $T/archive ]]'
 reset; out=$(PRWATCH_NOW=$((SE+26940)) pp); rc=$?
 ok "B1.18: prep at T+7h29 goes ahead (then the stub clone fails: 20)" '(( rc == 20 )) && [[ -e $T/archive ]]'
 reset; out=$(PRWATCH_NOW=$SE PRWATCH_SESSION_ID=sid-B pp); rc=$?
@@ -452,7 +452,7 @@ reset; out=$(PRWATCH_SESSION_ID=sid-B ph "stop")
 ok "B2: ph 'stop' from a stale window → not done" '[[ $out == "PRWATCH STOP: not done (this window is not the current watcher)." && ! -e $STOPF && ! -e $T/stopped-sid-B ]]'
 reset; out=$(PRWATCH_NOW=$((SE+600)) ph $'  PAUSE 30\n')
 ok "B2: ph 'pause 30' (trimmed, any case) → paused_until = now + 30 min, told until HH:MM" '[[ $(jq .paused_until $T/state.json) == $((SE+2400)) && $out == "PRWATCH PAUSE: checks skipped for 30 minutes (until 09:40)." && ! -e $T/pause/request.json ]]'
-ok "B2: pause event + tick says paused until 09:50" '[[ $(jq -c "select(.pause==30)|[.session,.until]" $T/events.jsonl) == "[\"sid-A\",$((SE+2400))]" && $(tk $((SE+1200)) | jq -c "[.status,.until]") == "[\"paused\",\"09:40\"]" ]]'
+ok "B2: pause event + tick says paused until 09:40" '[[ $(jq -c "select(.pause==30)|[.session,.until]" $T/events.jsonl) == "[\"sid-A\",$((SE+2400))]" && $(tk $((SE+1200)) | jq -c "[.status,.until]") == "[\"paused\",\"09:40\"]" ]]'
 ok "B2: pause over → ticks again"          '[[ $(tk $((SE+2400)) | jq -r .status) == ok ]]'
 reset; out=$(ph "pause 500")
 ok "B2: pause 500 → not changed (1 to 480)" '[[ $out == "PRWATCH PAUSE: not changed (pause must be 1 to 480)." && $(jq .paused_until $T/state.json) == null ]] && [[ $(jq -c "select(.pause_refused!=null)|.pause_refused" $T/events.jsonl 2>/dev/null) == "" ]]'
@@ -504,7 +504,7 @@ else print "skip B2.7/B2.8a (no launcher at $L; set PRWATCH_LAUNCHER)"; fi
 outside=$(awk '/PRWATCH_TESTMODE/{b=1} /PRWATCH_TEST_STARTED_EPOCH/ && !b {print NR} /^fi([ \t;]|$)/{b=0}' "$L" 2>/dev/null)
 ok "B2.8b: PRWATCH_TEST_STARTED_EPOCH only inside the launcher's test-mode block" '[[ -z $outside ]] && (( $(grep -c PRWATCH_TEST_STARTED_EPOCH "$L" 2>/dev/null) >= 1 ))'
 ok "B2.8b: no script reads PRWATCH_TEST_STARTED_EPOCH" '! grep -rq PRWATCH_TEST_STARTED_EPOCH $B'
-ok "B2.8b: launcher never reads its own outputs" '! grep -Eq "\\\$\\{?PRWATCH_(STARTED_EPOCH|LOCK_JSON)" "$L"'
+ok "B2.8b: launcher never reads its own outputs" '! grep -v "^export " "$L" | sed "s/#.*//" | grep -Eq "[^A-Za-z_]PRWATCH_(STARTED_EPOCH|LOCK_JSON)"'
 ok "B2.8b: launcher watchdog and exit path use --window, no clock of their own" '(( $(grep -c "prwatch-tick.sh\" --window\|prwatch-tick.sh --window" "$L") >= 2 )) && ! grep -Eq "date \+%u|date \+%H%M|10#\\\$hm" "$L"'
 
 # B8 — scheduling gate: one job, one string
@@ -514,6 +514,7 @@ ok "B8: CronList / CronDelete allowed"     '[[ $(sg CronList) == 0 && $(sg CronD
 ok "B8: both old strings denied"           '[[ $(sg CronCreate "*/15 8-15 * * 1-5" /prwatch-tick) == 2 && $(sg CronCreate "3 16 * * 1-5" /prwatch-eod) == 2 ]]'
 ok "B8: /prwatch-eod on any cron denied"   '[[ $(sg CronCreate "*/15 * * * *" /prwatch-eod) == 2 && $(sg CronCreate "3 17 * * *" /prwatch-eod) == 2 ]]'
 ok "B8: other cadence (*/10) denied"       '[[ $(sg CronCreate "*/10 * * * *" /prwatch-tick) == 2 && $(sg CronCreate "* * * * *" /prwatch-tick) == 2 ]]'
+ok "B8: extra field / string recurring denied" '[[ $(jq -nc "{tool_name:\"CronCreate\",tool_input:{cron:\"*/15 * * * *\",prompt:\"/prwatch-tick\",once:true}}" | $PH sched 2>/dev/null; print $?) == 2 && $(jq -nc "{tool_name:\"CronCreate\",tool_input:{cron:\"*/15 * * * *\",prompt:\"/prwatch-tick\",recurring:\"true\"}}" | $PH sched 2>/dev/null; print $?) == 2 ]]'
 ok "B8: extra text / one-shot / 'stop' denied" '[[ $(sg CronCreate "*/15 * * * *" "/prwatch-tick then stop") == 2 && $(sg CronCreate "*/15 * * * *" /prwatch-tick false) == 2 && $(sg CronCreate "*/15 * * * *" "stop") == 2 ]]'
 ok "B8: ScheduleWakeup / RemoteTrigger / unknown / garbage denied" '[[ $(sg ScheduleWakeup "" "stop") == 2 && $(sg RemoteTrigger) == 2 && $(sg CronCreateV2 "*/15 * * * *" /prwatch-tick) == 2 && $(print "not json" | $PH sched 2>/dev/null; print $?) == 2 ]]'
 ok "B8: refusal names the one job"         '[[ "$(jq -nc "{tool_name:\"CronCreate\",tool_input:{cron:\"x\",prompt:\"y\"}}" | $PH sched 2>&1 >/dev/null)" == *"*/15 * * * *"* && "$(jq -nc "{tool_name:\"CronCreate\",tool_input:{cron:\"x\",prompt:\"y\"}}" | $PH sched 2>&1 >/dev/null)" == *"/prwatch-tick"* ]]'
@@ -530,7 +531,7 @@ ok "guard: model cannot run prompthook"     '[[ $(g "$PH prompt") == 2 && $(g "e
 
 # B9 — prose: the values the scripts own, in the texts the model and Jack read
 MF=($PRW/CLAUDE.md $S7/prwatch-{start,tick,review,eod,decide}/SKILL.md)                     # model-facing
-PF9=("$L" $PRW/README.md $MF); REPO=${PRWATCH_REPO:-/Users/jack/Herd/Shuffle/pr-watcher/watcher}; [[ -f ${REPO:h}/README.md ]] && PF9+=(${REPO:h}/README.md)
+PF9=("$L" $PRW/README.md $MF); REPO=${PRWATCH_REPO:-$HOME/Documents/GitHub/pr-watcher/watcher}; [[ -f ${REPO:h}/README.md ]] && PF9+=(${REPO:h}/README.md)
 ok "B9: no cap vocabulary anywhere Jack or the model reads" '! grep -Eiq "cap [0-9]|daily cap|review limit|at most 12|normally 6|PRWATCH CAP" $PF9'
 ok "B9: no clock-of-day or weekday vocabulary" '! grep -Eiq "08:00|15:30|16:00|Mon.?Fri|weekday|1-5 " $PF9'
 ok "B9: no 'today' in model-facing text"   '! grep -Eiqw "today" $MF'

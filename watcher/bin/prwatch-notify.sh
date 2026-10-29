@@ -1,6 +1,6 @@
 #!/bin/zsh
 # prwatch-notify.sh <kind> <ref>  — fixed templates + state; untrusted text only ever passed as argv.
-[[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/usr/bin:/bin LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 \
+[[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" ${TZ:+TZ=$TZ} PATH=/usr/bin:/bin LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob
 PRW=$HOME/prwatch; S=$PRW/state
@@ -28,7 +28,7 @@ case $kind in
               state)         msg="The watcher can't read its state file (state/state.json) - no reviews will start. See the window.";;
               *)             msg="Problem: $(clean "$ref") - see the PR watcher window.";;
             esac ;;
-  eod)      sub="End of day"; snd=""; msg=$(clean "$ref" 80) ;;
+  eod)      sub="Session summary"; snd=""; msg=$(clean "$ref" 80) ;;
   test)     sub="Test"; snd=Glass; msg="Test notification with a \"quote\" and it's fine." ;;
 esac
 mkdir -p "$S/notify-throttle"; t="$S/notify-throttle/$kind-${ref//[^A-Za-z0-9]/_}"

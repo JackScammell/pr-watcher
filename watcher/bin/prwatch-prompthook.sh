@@ -38,8 +38,9 @@ case ${1:-} in
     ( tool=$(j '.tool_name // ""')
       [[ $tool == (CronList|CronDelete) ]] && exit 0
       [[ $tool == CronCreate ]] || exit 1
-      c=$(j '"\(.tool_input.cron // "")|\(.tool_input.prompt // "")|\(.tool_input.recurring | if . == null then true else . end)"')   # recurring: true when absent
-      [[ $c == "*/15 * * * *|/prwatch-tick|true" ]] ) && exit 0      # M11: accept any cron with prompt /prwatch-tick
+      # recurring: true when absent, must be a real boolean; any field beyond cron/prompt/recurring is refused
+      c=$(j '"\(.tool_input.cron // "")|\(.tool_input.prompt // "")|\(.tool_input.recurring | if . == null then true elif type == "boolean" then . else "bad" end)|\(.tool_input | keys - ["cron","prompt","recurring"] | length)"')
+      [[ $c == "*/15 * * * *|/prwatch-tick|true|0" ]] ) && exit 0
     print -u2 "prwatch: nothing may be scheduled except /prwatch-start's one job: CronCreate /prwatch-tick at */15 * * * * (recurring)."
     exit 2 ;;
 esac

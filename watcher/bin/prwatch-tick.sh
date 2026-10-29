@@ -15,6 +15,7 @@ fi
 for x in "$@"; do case $x in --dry-run) DRY=1;; --window) WONLY=1;; *) exit 64;; esac; done
 out() { print -r -- "$1"; exit 0; }
 ST=$PRW/bin/prwatch-state.sh; SID=${PRWATCH_SESSION_ID:-}
+[[ -z $SID || $SID == [A-Za-z0-9_-]## ]] || { print "bad session id"; exit 64; }
 mkdir -p $S; F=$S/state.json; [[ -f $F ]] || print '{"prs":{},"go_ahead":{},"repos":{}}' > $F
 # 1. lock recreation (full ticks only): a lock without a session_id is rebuilt from the launcher's own lock object,
 #    which must name this session — so started_epoch always comes from what the launcher wrote, never "start now".
@@ -30,8 +31,8 @@ elapsed=$(( now - se ))
 if   (( elapsed < START_LIMIT )); then wst=in_window
 elif (( elapsed < END ));         then wst=start_closed
 else wst=session_over; fi
-W=$(jq -nc --arg s "$(date -r $se -Iseconds)" --argjson m $(( elapsed / 60 )) --arg su "$(hhmm $(( se + START_LIMIT )))" --arg ea "$(hhmm $(( se + END )))" \
-  '{started:$s,elapsed_min:$m,starts_until:$su,ends_at:$ea}')
+W=$(jq -nc --arg s "$(date -r $se -Iseconds)" --arg sh "$(hhmm $se)" --argjson m $(( elapsed / 60 )) --arg su "$(hhmm $(( se + START_LIMIT )))" --arg ea "$(hhmm $(( se + END )))" \
+  '{started:$s,started_hm:$sh,elapsed_min:$m,starts_until:$su,ends_at:$ea}')
 win() { jq -c --arg st $1 --argjson x "${2:-{\}}" '{status:$st} + . + $x' <<<$W; }
 eod_due() { [[ -f $S/eod-done-$SID ]] && print false || print true; }
 if (( WONLY )); then [[ $wst == session_over ]] && out "$(win $wst "{\"eod_due\":$(eod_due)}")"; out "$(win $wst)"; fi

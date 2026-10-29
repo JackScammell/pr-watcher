@@ -45,7 +45,7 @@ jobs:
         run: |
           set -u
           bad=0
-          for f in install.sh 'launcher/PR Watcher.command' watcher/bin/*.sh watcher/shims/* \
+          for f in install.sh 'launcher/PR Watcher.command' watcher/bin/*.sh watcher/bin/*.zsh watcher/shims/* \
                    watcher/test/harness/*.sh watcher/test/sim2/*.sh watcher/test/stub/osascript; do
             if zsh -n "$f"; then echo "ok   $f"; else echo "BAD  $f"; bad=1; fi
           done

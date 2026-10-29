@@ -14,13 +14,13 @@
 #        while PR code runs. Follow-up is `prwatch-state.sh harness-abort <key>` (needs every marker .stopped).
 # The model cannot write state/ (sandbox denyWrite + permission deny), so markers are not forgeable by PR text.
 # cleanup --sweep archives markers/notes older than a day; a new session id ignores older sessions' markers.
-[[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/usr/bin:/bin LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 \
+[[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" ${TZ:+TZ=$TZ} PATH=/usr/bin:/bin LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob nullglob
 PRW=$HOME/prwatch; source $PRW/bin/prwatch-common.zsh
 S=$PRW/state
 [[ -n ${PRWATCH_TESTMODE:-} ]] && S=${PRWATCH_STATE_DIR:-$PRW/test/state}
-NL=$'\n'; H=$S/harness; SID=${PRWATCH_SESSION_ID:-nosession}
+NL=$'\n'; H=$S/harness; SID=${PRWATCH_SESSION_ID:-}
 p=$(cat) || exit 0
 log() { mkdir -p $H; print -r -- "$(date -Iseconds) $*" >> $H/hook.log; }
 j() { print -r -- "$p" | /usr/bin/jq -r "$1" 2>/dev/null; }

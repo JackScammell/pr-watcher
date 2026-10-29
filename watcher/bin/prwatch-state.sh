@@ -19,6 +19,7 @@ mkdir -p $S; F=$S/state.json; [[ -f $F ]] || print '{"prs":{},"go_ahead":{},"rep
 # check: an empty or corrupt state.json is an error (70), never "nothing tracked"
 [[ ${1:-} == check ]] && { jq -e '.prs|type=="object"' $F >/dev/null 2>&1 && exit 0; print "state unreadable"; exit 70; }
 SID=${PRWATCH_SESSION_ID:-}
+[[ -z $SID || $SID == [A-Za-z0-9_-]## ]] || { print "bad session id"; exit 64; }     # it is written into file names and JSON
 [[ "$(jq -r .session_id $S/session.lock 2>/dev/null)" == "${SID:-x}" ]] || { print superseded; exit 5; }
 # One writer at a time: fcntl lock; unlock before slow side effects (notify, cleanup) so nothing waits on them.
 # Not taken by subcommands that never write state.json (harness-abort locks only around its final write).
@@ -29,6 +30,7 @@ unlock() { zsystem flock -u $lfd; }
 STATUSES='(queued|reviewing|ready|asking|awaiting_decision|posted|skipped|failed|draft_seen|closed|withdrawn|go_ahead_pending|go_ahead_declined)'
 okkey() { [[ $1 == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## ]] || { print "bad key"; exit 64; } }
 # every write drops the retired cap fields; run.sh "failed write → 70" relies on the .tmp name
+# MIGRATION (remove after v1.0.0): del(.daily,.cap_override) drops the v1 cap fields the first time a v1 state file is written.
 write() { local f=${@[-1]}; jq "${@[1,-2]}" "del(.daily,.cap_override) | $f" $F > $F.tmp && mv $F.tmp $F; }
 now=$(date -Iseconds); ne=$(now_epoch) || { print -r -- "$ne"; exit 64; }
 ev() { print -r -- "{\"t\":\"$now\",\"session\":\"$SID\"$1}" >> $S/events.jsonl; }     # $1 = ",\"k\":v..." (validated values only)
@@ -37,7 +39,7 @@ ev() { print -r -- "{\"t\":\"$now\",\"session\":\"$SID\"$1}" >> $S/events.jsonl;
 # can't write state/ (sandbox denyWrite + permission deny): the request is Jack's typed prompt, by mechanism.
 fresh_request() { local R=$S/$1/request.json
   [[ "$(jq -r '"\(.session) \(.n)"' $R 2>/dev/null)" == "$SID $2" ]] || return 1
-  (( $(date +%s) - $(stat -f %m $R) < 120 )) }
+  (( $(date +%s) - $(stat -f %m $R) < REQUEST_MAX_AGE )) }
 case ${1:-} in
   set) okkey ${2:-}; key=$2; stt=${3:-}; [[ $stt == ${~STATUSES} ]] || { print "bad status"; exit 64; }; shift 3
        args=(--arg k $key --arg s $stt --arg t $now); f='.prs[$k] = ((.prs[$k] // {}) + {status:$s, updated_at:$t}'
@@ -57,9 +59,9 @@ case ${1:-} in
   freeze) okkey ${2:-}; d=$(jq -r --arg k $2 '.prs[$k].archive // ""' $F); [[ -f $d/draft/review-body.md ]] || { print "no draft"; exit 64; }
        h=$(shasum -a 256 $d/draft/review-body.md | cut -c1-12); write --arg k $2 --arg h $h '.prs[$k].body_sha=$h'; print $h ;;
   get) okkey ${2:-}; jq --arg k $2 '.prs[$k]' $F ;;
-  stop) fresh_request stop stop || { ev ',"stop_refused":true'; print "only Jack can stop the watcher, by typing stop at the prompt"; exit 64; }   # M4: skip this line
+  stop) fresh_request stop stop || { ev ',"stop_refused":true'; print "only Jack can stop the watcher, by typing stop at the prompt"; exit 64; }
        rm -f $S/stop/request.json; touch $S/stopped-$SID; ev ',"stop":true'; print stopped ;;
-  pause) [[ ${2:-} == [1-9][0-9]# ]] && (( $2 <= 480 )) || { print "pause must be 1 to 480"; exit 64; }
+  pause) [[ ${2:-} == [1-9][0-9]# ]] && (( $2 <= PAUSE_MAX )) || { print "pause must be 1 to $PAUSE_MAX"; exit 64; }
        fresh_request pause $2 || { ev ",\"pause_refused\":$2"; print "only Jack can pause the watcher, by typing pause N at the prompt"; exit 64; }
        rm -f $S/pause/request.json; u=$(( ne + $2 * 60 ))
        write --argjson u $u '.paused_until=$u'; ev ",\"pause\":$2,\"until\":$u"

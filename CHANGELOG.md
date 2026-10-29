@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The launcher's watchdog and exit notice take the session status from `prwatch-tick.sh --window`; the "stopped early" notification now says the watcher stopped before the end of its session.
 - Stop markers are per session (`stopped-<session_id>`; old dated markers are ignored and swept); every `events.jsonl` line carries `session`; `paused_until` is stored as epoch seconds; the tick status `stopped_for_today` is now `stopped`.
 - `watcher/CLAUDE.md`, the five skills and both READMEs describe the session in elapsed time (the first 7½ hours, the next launch) and never name a clock time or a day of the week.
+- Times shown to Jack are HH:MM (`started_hm`, `starts_until`, `ends_at`, pause `until`), with "tomorrow" or "yesterday" added when the day differs; the end-of-session notification is titled "Session summary". The sched gate refuses a `CronCreate` with any field beyond cron, prompt and recurring, or a non-boolean `recurring`. Scripts refuse a malformed session id. `prwatch-prep.sh` answers a lock without `started_epoch` with exit 25 ("no session start"), keeping 27 for the 7½-hour cut-off.
 
 ### Removed
 

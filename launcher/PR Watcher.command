@@ -61,7 +61,7 @@ touch "$PRW/state/activity"
     (( now - last > 600 )) && touch "$PRW/state/activity"      # we were asleep: restart the clock
     last=$now
     [[ -f "$SD/stopped-$PRWATCH_SESSION_ID" ]] && continue      # Jack typed "stop"
-    elapsed=$(( now - PRWATCH_STARTED_EPOCH )); (( elapsed >= WATCHDOG_ARM )) || continue
+    elapsed=$(( now - SE )); (( elapsed >= WATCHDOG_ARM )) || continue
     w=$("$PRW/bin/prwatch-tick.sh" --window 2>/dev/null); wst=$(/usr/bin/jq -r '.status // ""' <<<"$w" 2>/dev/null)
     case "$wst" in
       in_window|start_closed) ;;
@@ -100,7 +100,8 @@ kill $WD $CAF 2>/dev/null                    # no watchdog / caffeinate once Cla
 print "Watcher stopped at $(date +%H:%M) (exit $rc)."
 # Early exit notice: only if the session was still running (not over, not stopped by Jack).
 w=$("$PRW/bin/prwatch-tick.sh" --window 2>/dev/null); wst=$(/usr/bin/jq -r '.status // ""' <<<"$w" 2>/dev/null)
-[[ "$wst" != session_over && ! -f "$SD/stopped-$PRWATCH_SESSION_ID" ]] && "$PRW/bin/prwatch-notify.sh" error session-ended
+[[ "$wst" != session_over && ! -f "$SD/stopped-$PRWATCH_SESSION_ID" && "$(/usr/bin/jq -r .session_id "$LOCK" 2>/dev/null)" == "$PRWATCH_SESSION_ID" ]] \
+  && "$PRW/bin/prwatch-notify.sh" error session-ended     # not when a newer window has taken the lock over
 # Only remove the lock if it is still ours (a newer window may have taken over).
 [[ "$(/usr/bin/jq -r .session_id "$LOCK" 2>/dev/null)" == "$PRWATCH_SESSION_ID" ]] && rm -f "$LOCK"
 print -n "Press any key to close this window."; read -k1
