@@ -51,8 +51,7 @@ case ${1:-} in
        if ! jq -e --arg k $key '.prs|has($k)' $F >/dev/null; then      # a new key: the repo gate, then promotion
          key_split $key; R=$o/$repo
          repo_allowed $F $R || { ev ",\"repo_not_allowed\":\"$R\""; print "repo not allowed"; exit 64; }
-         jq -e --arg r ${R:l} '(.repos // {})|with_entries(.key|=ascii_downcase)|has($r)' $F >/dev/null \
-           || { args+=(--arg rl ${R:l}); promote=' | .repos[$rl]="allowed"'; }
+         [[ $(repo_status $F $R) == seen ]] && { args+=(--arg rl ${R:l}); promote=' | .repos[$rl]="allowed"'; }   # grandfathered: record it
        fi
        i=0; for kv in "$@"; do [[ $kv == [a-z_]##=[A-Za-z0-9._/:@#+-]# ]] || { print "bad field $kv"; exit 64; }
          args+=(--arg v$i ${kv#*=}); f+=" + {\"${kv%%=*}\": \$v$i}"; (( i++ )); done

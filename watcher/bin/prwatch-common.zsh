@@ -22,9 +22,9 @@ now_epoch() {
 # Reads the lock only — never an environment variable — so the window is always measured from what the launcher wrote.
 started_epoch() { local v; v=$(/usr/bin/jq -r '.started_epoch // ""' $1/session.lock 2>/dev/null) || return 1
   [[ $v == [0-9]## ]] || return 1; print -r -- $v; }
-# hhmm <epoch> — for humans: HH:MM, plus "tomorrow" / "yesterday" / "on <date>" when it is not the current day
 # session_id_ok <sid> — empty, or [A-Za-z0-9_-]+ : it is written into file names and JSON, so nothing else is accepted
 session_id_ok() { emulate -L zsh; setopt extendedglob; [[ -z $1 || $1 == [A-Za-z0-9_-]## ]] }
+# hhmm <epoch> — for humans: HH:MM, plus "tomorrow" / "yesterday" / "on <date>" when it is not the current day
 hhmm() { local t d n nd; t=$(date -r $1 +%H:%M); d=$(date -r $1 +%F); n=$(now_epoch) || n=$(date +%s); nd=$(date -r $n +%F)
   if   [[ $d == $nd ]];                          then print -r -- $t
   elif [[ $d == $(date -r $((n+86400)) +%F) ]]; then print -r -- "$t tomorrow"
@@ -50,11 +50,17 @@ key_split() { local rest; o=${1%%/*}; rest=${1#*/}; repo=${rest%%\#*}; n=${rest#
 wt_prefix()    { local o repo n; key_split $1; print -r -- "${o}__${repo}-pr${n}-"; }
 wt_name()      { local o repo n; key_split $1; print -r -- "${o}__${repo}-pr${n}-${2[1,7]}"; }
 archive_name() { local o repo n; key_split $1; print -r -- "${3:-$(date +%F)}-${o:l}-${repo:l}-pr${n}-round${2}"; }
-WT_GLOB='*__*-pr[0-9]*-[0-9a-f]*'                                            # sweeps and kill_strays: $PRW/work/${~WT_GLOB}
+WT_PAT="${OWNER_PAT}__${REPO_PAT}-pr${NUM_PAT}-[0-9a-f](#c7)"                  # a worktree basename, strictly (cleanup; the PR 4 skill hook)
+WT_GLOB='*__*-pr[0-9]*-[0-9a-f]*'                                            # kill_strays only: $PRW/work/${~WT_GLOB} (loose on purpose)
+# repo_status <state.json> <owner/repo> — prints one word, the one place the repos map is read:
+#   allowed  repos[R] == "allowed"          blocked  a repos entry with any other value
+#   seen     no repos entry, but some prs key starts with "R#" (day-1 rule: a tracked PR = seen; state set promotes it)
+#   unseen   neither (an unreadable file prints unseen)
+#   Case-insensitive: repos keys, prs keys and R are all compared lower-cased (GitHub owners and repos are).
+repo_status() { /usr/bin/jq -r --arg r "${2:l}" '((.repos // {}) | with_entries(.key |= ascii_downcase)) as $rp
+  | if ($rp | has($r)) then (if $rp[$r] == "allowed" then "allowed" else "blocked" end)
+    elif ([(.prs // {}) | keys[] | ascii_downcase | select(startswith($r + "#"))] | length > 0) then "seen"
+    else "unseen" end' "$1" 2>/dev/null || print unseen }
 # repo_allowed <state.json> <owner/repo> — the one source gate (exit status is the predicate; prints nothing):
-#   repos[R] == "allowed", or no repos entry for R and some prs key starts with "R#" (day-1 rule: a tracked PR = seen).
-#   "blocked" never passes; an unreadable file never passes. Case-insensitive: repos keys, prs keys and R are all
-#   compared lower-cased (GitHub owners and repos are). prep, state set and tick all ask this and nothing else.
-repo_allowed() { /usr/bin/jq -e --arg r "${2:l}" '((.repos // {}) | with_entries(.key |= ascii_downcase)) as $rp
-  | if ($rp | has($r)) then $rp[$r] == "allowed"
-    else ([(.prs // {}) | keys[] | ascii_downcase | select(startswith($r + "#"))] | length > 0) end' "$1" >/dev/null 2>&1 }
+#   allowed or seen passes; blocked and unseen never do. prep, state set and tick all ask this and nothing else.
+repo_allowed() { [[ $(repo_status "$1" "$2") == (allowed|seen) ]] }

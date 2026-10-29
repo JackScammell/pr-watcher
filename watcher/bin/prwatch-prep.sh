@@ -81,9 +81,9 @@ files=$(jq -r '.files[].path' $dir/input/pr.json)
 # install, which the locked-down restore must never see → static council only, no prebuild, no testing-build angle.
 laravel=$($G -C $src show "$sha:composer.json" 2>/dev/null | jq -e '(.require // {}) | has("laravel/framework")' >/dev/null 2>&1 && print true || print false)
 has() { print -r -- $files | grep -Eq "$1" && print true || print false; }
-hasi() { print -r -- $files | grep -Eiq "$1" && print true || print false; }     # case-insensitive: has_pii only
+hasi() { print -r -- $files | grep -Eiq "$1" && print true || print false; }     # case-insensitive, anchored at a path or word start: has_pii only (advisory until a consumer reads it)
 jq -n --argjson dotnet $(has '\.(cs|csproj|sln)$') --argjson sql $(has '\.sql$|/Migrations/|database/migrations/') \
-  --argjson pii $(hasi '(learner|staff|person|attendance|safeguard|address|dob)') \
+  --argjson pii $(hasi '(^|[/_.-])(learner|student|apprentice|employer|employee|staff|person|people|user|contact|parent|guardian|candidate|applicant|attendance|safeguard|ehcp|medical|disabilit|address|dob|birth|nino|national.?insurance|uln|email|phone|payroll|salary)') \
   --argjson angular $(has '(^|/)(frontend|learner)/|\.component\.(ts|html)$|src/app/') --argjson php $(has '\.php$') --argjson python $(has '\.py$') \
   --argjson frontend $(has '(^|/)(frontend|learner)/|\.(ts|html|scss|vue|tsx|jsx)$|\.blade\.php$|resources/js/') \
   --argjson tests $(has '([Tt]ests?/|\.spec\.ts$|Tests?\.cs$|_test\.py$|test_.*\.py$)') \
@@ -91,6 +91,8 @@ jq -n --argjson dotnet $(has '\.(cs|csproj|sln)$') --argjson sql $(has '\.sql$|/
   --argjson behind $behind --argjson laravel $laravel \
   '{has_dotnet:$dotnet,has_sql:$sql,has_angular:$angular,has_php:$php,has_python:$python,has_frontend:$frontend,has_tests:$tests,has_code:$code,has_pii:$pii,behind_base:$behind,is_laravel:$laravel}' > $dir/input/profile.json
 # prebuild in the -build copy: dependency restore only, under a deny-by-default-for-home sandbox-exec profile
+# PR code runs here (MSBuild props, lifecycle-free npm ci, pip): the session identity is kept out of its environment.
+sbx() { env -u PRWATCH_LOGIN -u PRWATCH_LOCK_JSON -u GH_CONFIG_DIR sandbox-exec -p "$P" "$@"; }
 mkdir -p $PRW/cache/{tmp,nuget,nuget-http,nuget-plugins,dotnet-home,npm}
 export TMPDIR=$PRW/cache/tmp/ DOTNET_CLI_HOME=$PRW/cache/dotnet-home NUGET_PACKAGES=$PRW/cache/nuget \
        NUGET_HTTP_CACHE_PATH=$PRW/cache/nuget-http NUGET_PLUGINS_CACHE_PATH=$PRW/cache/nuget-plugins \
@@ -115,18 +117,18 @@ else
       for s in appsettings.json appsettings.Development.json appsettings.Production.json; do
         (cd $bw && $G ls-files --error-unmatch $d/$s >/dev/null 2>&1) || [[ -e $bw/$d/$s ]] || print '{}' > $bw/$d/$s; done; done
     slns=( ${(f)"$(cd $bw && $G ls-files '*.sln' | grep -v '^database/')"} )      # Vision: api/VisionApi.sln (skip SQL project)
-    for s in $slns; do (cd $bw && sandbox-exec -p "$P" dotnet restore "$s" -m:1); done   # -m:1: MSBuild worker nodes bind a pipe under /tmp, which the profile denies -> endless node retries (BUILD-NOTES)
+    for s in $slns; do (cd $bw && sbx dotnet restore "$s" -m:1); done   # -m:1: MSBuild worker nodes bind a pipe under /tmp, which the profile denies -> endless node retries (BUILD-NOTES)
     print -r -- "dotnet_solutions=${(j:,:)slns}" >> $dir/input/base-merge.txt
   fi
   beat
   if [[ -f $bw/package-lock.json ]] && jq -e '.workspaces' $bw/package.json >/dev/null 2>&1; then
-    (cd $bw && sandbox-exec -p "$P" npm ci --ignore-scripts --no-audit --no-fund)        # npm workspaces root (Vision: frontend, learner, packages/*)
+    (cd $bw && sbx npm ci --ignore-scripts --no-audit --no-fund)        # npm workspaces root (Vision: frontend, learner, packages/*)
   else
-    for app in frontend learner; do [[ -f $bw/$app/package-lock.json ]] && (cd $bw/$app && sandbox-exec -p "$P" npm ci --ignore-scripts --no-audit --no-fund); done
+    for app in frontend learner; do [[ -f $bw/$app/package-lock.json ]] && (cd $bw/$app && sbx npm ci --ignore-scripts --no-audit --no-fund); done
   fi
   beat
   if [[ $(jq .has_python $dir/input/profile.json) == true ]]; then
-    sandbox-exec -p "$P" /usr/bin/python3 -m venv $bw/.pw-venv && sandbox-exec -p "$P" $bw/.pw-venv/bin/pip install -q requests keyring
+    sbx /usr/bin/python3 -m venv $bw/.pw-venv && sbx $bw/.pw-venv/bin/pip install -q requests keyring
   fi
 } > $dir/input/prebuild.log 2>&1 || print "prebuild had errors (see above)" >> $dir/input/prebuild.log
 fi

@@ -23,6 +23,7 @@
 #   M15 post defaults the owner (Vision#1 → ACT-Training) → "B5: post --key Vision#1 → 64 bad arguments (no default owner)"
 #   M16 prep skips the repo gate                         → "B12: prep on a repo with no repos entry and no prs key → 25 repo not allowed, nothing cloned"
 #   M17 state set skips the repo gate                    → "B12: set on a key whose repo is absent → 64 repo not allowed, repo_not_allowed event, no prs entry"
+#   M18 tick's new_repo notification sent per PR again   → "B12: two PRs of one unseen repo → two new_repo rows, one notice, one newrepo notification"
 emulate -L zsh; set -u; setopt nullglob
 export TZ=Europe/London
 PRW=$HOME/prwatch; B=$PRW/bin; FX=${0:A:h}/fixtures; fail=0; n=0
@@ -358,14 +359,16 @@ ok "review skill: harness-abort retried when state busy" 'grep -q "for \"state b
 # B1 — the 8-hour window from the lock's started_epoch (plan D18). Stub gh: every PR is open at sha abc, 0 lines;
 # `api user` answers ${PRWATCH_STUB_LOGIN-stubuser} (the launcher's login capture, B6), `api user/orgs` nothing, a
 # timeline call the raw JSON of one review_requested event for that same login (dated 2099, so it is always after
-# posted_at; the tick pipes it into jq --arg me); every call is appended to $T/gh-calls.log (B6/B12 assert that no
-# `pr view` happened). Env lookups happen at run time (quoted heredoc).
+# posted_at; the tick pipes it into jq --arg me); `search prs` (the inbox search, taken only when PRWATCH_ONLY_PR is unset:
+# tks) answers the rows in $T/search.json, or [] without that file; every call is appended to $T/gh-calls.log (B6/B12
+# assert that no `pr view` happened). Env lookups happen at run time (quoted heredoc).
 mkstub() { mkdir -p $T/stub; ln -sf $PRW/test/stub/osascript $T/stub/osascript
   cat > $T/stub/gh <<'EOF'
 #!/bin/zsh
 print -r -- "$*" >> "${PRWATCH_STATE_DIR:-/tmp}/gh-calls.log"
 case "$1 $2" in
   "pr view") print '{"headRefOid":"abc","isDraft":false,"state":"OPEN","title":"t","author":{"login":"x"},"files":[]}' ;;
+  "search prs") sj="${PRWATCH_STATE_DIR:-/tmp}/search.json"; if [[ -f $sj ]]; then /bin/cat "$sj"; else print '[]'; fi ;;
   "api user") print -r -- "${PRWATCH_STUB_LOGIN-stubuser}" ;;
   api\ repos/*/timeline) /usr/bin/jq -nc --arg l "${PRWATCH_STUB_LOGIN-stubuser}" '[{event:"review_requested",requested_reviewer:{login:$l},created_at:"2099-01-01T00:00:00Z"}]' ;;
 esac
@@ -377,6 +380,7 @@ win() { PRWATCH_NOW=$1 $B/prwatch-tick.sh --window ${2:-} 2>/dev/null; }      # 
 wst() { win "$@" | jq -r '[.status, .kind // "-"] | join(" ")'; }
 tko() { local o=$1; shift; mkstub; PRWATCH_STUB_BIN=$T/stub PRWATCH_ONLY_PR=$o PRWATCH_NOW=$1 $B/prwatch-tick.sh ${2:-} 2>/dev/null; }   # full tick for ONLY=$1 ($3 = --dry-run)
 tk()  { tko ACT-Training/Zzzt#9 "$@"; }                                                                                  # full tick ($2 = --dry-run)
+tks() { mkstub; PRWATCH_STUB_BIN=$T/stub PRWATCH_NOW=$1 env -u PRWATCH_ONLY_PR $B/prwatch-tick.sh ${2:-} 2>/dev/null; }   # full tick through the stub SEARCH (rows from $T/search.json; PRWATCH_LOGIN stays exported)
 reset
 ok "B1: T+0 → in_window"                   '[[ $(wst $SE) == "in_window -" ]]'
 ok "B1: T+7h29m59s → in_window"            '[[ $(wst $((SE+26999))) == "in_window -" ]]'
@@ -605,11 +609,11 @@ ok "B11: waits for a short lock, then writes" '(( rc == 0 )) && [[ $(st ACT-Trai
 
 # B4 — one key grammar (D12) at three entry points: state get (0 / 64), cleanup (0 / 64), ngtest (past the key check / 64)
 b4() { $B/prwatch-$1.sh "${@:2}" >/dev/null 2>&1; print $?; }
-o256=$(printf 'a%.0s' {1..256})
+o256=$(printf 'a%.0s' {1..256}); o39=$(printf 'a%.0s' {1..39}); o40=${o39}a; r100=$(printf 'r%.0s' {1..100}); r101=${r100}r   # GitHub's limits: owner ≤ 39, repo ≤ 100, n ≤ 7 digits
 reset
-for k in 'ACT-Training/Vision#1803' 'Some-Org/repo#1' 'JackScammell/pr-watcher#1' 'a-b-c-d/e.f-g_h#99999'; do   # owner grammar has no . or _ (D12), so not the plan's a.b-c_d
-ok "B4: accept '$k'"                        '[[ $(b4 state get "$k") == 0 && $(b4 cleanup "$k") == 0 && $(b4 ngtest "$k" frontend) != 64 ]]'; done
-for k in '../x#1' 'a/b/c#1' 'A/B#x' 'A/B#' 'A/B' '/B#1' 'A/#1' 'A/B#1#2' 'A/B#1 ' 'A/B#01' '-x/y#1' 'a/-y#1' 'a/.y#1' "$o256/y#1" 'ACT-Training/Vision#1;ls'; do
+for k in 'ACT-Training/Vision#1803' 'Some-Org/repo#1' 'JackScammell/pr-watcher#1' 'a-b-c-d/e.f-g_h#99999' "$o39/y#1" "a/$r100#1" 'A/B#1234567'; do   # owner grammar has no . or _ (D12), so not the plan's a.b-c_d
+ok "B4: accept '${k[1,40]}'"                '[[ $(b4 state get "$k") == 0 && $(b4 cleanup "$k") == 0 && $(b4 ngtest "$k" frontend) != 64 ]]'; done
+for k in '../x#1' 'a/b/c#1' 'A/B#x' 'A/B#' 'A/B' '/B#1' 'A/#1' 'A/B#1#2' 'A/B#1 ' 'A/B#01' '-x/y#1' 'a/-y#1' 'a/.y#1' "$o256/y#1" "$o40/y#1" "a/$r101#1" 'A/B#12345678' 'ACT-Training/Vision#1;ls'; do
 ok "B4: refuse '${k[1,40]}'"                '[[ $(b4 state get "$k") == 64 && $(b4 cleanup "$k") == 64 && $(b4 ngtest "$k" frontend) == 64 ]]'; done
 
 # B5 — owner-bearing paths (D13/D14): names, prep/post argument validation, no hard-coded login or org
@@ -665,7 +669,9 @@ if [[ -f $L ]]; then
   ok "B6: launcher: one informational user/orgs line, no ACT-Training org check" '(( $(grep -c "gh api user/orgs" "$L") == 1 )) && ! grep -q "orgs/ACT-Training" "$L"'
 else print "skip B6 launcher checks (no launcher at $L; set PRWATCH_LAUNCHER)"; fi
 ok "B6: the three sandboxed test re-execs drop PRWATCH_LOGIN and PRWATCH_LOCK_JSON from the environment they pass on" '( for f in prwatch-buildrun.sh prwatch-ngtest.sh prwatch-dotnettest.sh; do head -20 $B/$f | grep -q "grep -v -e .\^PRWATCH_LOGIN=. -e .\^PRWATCH_LOCK_JSON=." || exit 1; done )'
+ok "B6: prep's prebuild sandbox-exec runs without PRWATCH_LOGIN, PRWATCH_LOCK_JSON and GH_CONFIG_DIR" 'grep -q "env -u PRWATCH_LOGIN -u PRWATCH_LOCK_JSON -u GH_CONFIG_DIR sandbox-exec" $B/prwatch-prep.sh'
 ok "B6: tick query: no --owner, user-review-requested:@me, author in --json" '! grep -q -- "--owner" $B/prwatch-tick.sh && grep -q "user-review-requested:@me" $B/prwatch-tick.sh && grep "gh search prs" $B/prwatch-tick.sh | grep -Eq -- "--json [A-Za-z,]*author"'
+ok "B6: tick query: newest first (--sort updated --order desc)" 'grep "gh search prs" $B/prwatch-tick.sh | grep -q -- "--sort updated --order desc"'
 for h in '../x#1' 'a/b;ls#1'; do reset; cp $T/state.json $T/state.before; : > $T/gh-calls.log; j=$(tko "$h" $SE)
 ok "B6: hostile nameWithOwner '$h' → dropped: ok, items empty, no state write, no pr view" '[[ $(jq -c "[.status,.items]" <<<$j) == "[\"ok\",[]]" ]] && cmp -s $T/state.json $T/state.before && ! grep -q "pr view" $T/gh-calls.log'; done
 
@@ -673,10 +679,12 @@ ok "B6: hostile nameWithOwner '$h' → dropped: ok, items empty, no state write,
 NL='First PR from Some-Org/Zzzt by someone: type allow Some-Org/Zzzt or block Some-Org/Zzzt'
 reset; cp $T/state.json $T/state.before; : > $T/gh-calls.log; j=$(PRWATCH_ONLY_AUTHOR=someone tko Some-Org/Zzzt#9 $SE)
 ok "B12: unseen repo → new_repo row with the search author, empty sha, no write, no pr view" '[[ $(jq -c ".items[0]|[.key,.reason,.sha,.size,.author]" <<<$j) == "[\"Some-Org/Zzzt#9\",\"new_repo\",\"\",0,\"someone\"]" ]] && cmp -s $T/state.json $T/state.before && ! grep -q "pr view" $T/gh-calls.log'
-ok "B12: the notices line, verbatim, and one question notification" '[[ $(jq -r ".notices[0]" <<<$j) == "$NL" ]] && grep -q " question "Some-Org/Zzzt#9" " $T/notify.log'
+ok "B12: the notices line, verbatim, and one newrepo notification (ref = the repo)" '[[ $(jq -r ".notices[0]" <<<$j) == "$NL" ]] && grep -q " newrepo Some-Org/Zzzt " $T/notify.log && ! grep -q " question " $T/notify.log'
 j2=$(PRWATCH_ONLY_AUTHOR=someone tko Some-Org/Zzzt#9 $((SE+900)))
-ok "B12: next tick repeats the notice, notification throttled, still no write" '[[ $(jq -r ".notices[0]" <<<$j2) == "$NL" && $(jq -r ".items[0].reason" <<<$j2) == new_repo ]] && (( $(grep -c " question " $T/notify.log) == 1 )) && cmp -s $T/state.json $T/state.before'
+ok "B12: next tick repeats the notice, notification throttled, still no write" '[[ $(jq -r ".notices[0]" <<<$j2) == "$NL" && $(jq -r ".items[0].reason" <<<$j2) == new_repo ]] && (( $(grep -c " newrepo " $T/notify.log) == 1 )) && cmp -s $T/state.json $T/state.before'
 ok "B12: a notice, never a question: tick JSON and the tick skill's new_repo line carry no AskUserQuestion" '! grep -q AskUserQuestion <<<$j && grep new_repo $S7/prwatch-tick/SKILL.md | grep -q "never \`AskUserQuestion\`"'
+reset; cp $T/state.json $T/state.before; j=$(PRWATCH_ONLY_AUTHOR=someone tko "Some-Org/Zzzt#9,Some-Org/Zzzt#10" $SE)   # M18: the notice and the notification are per repo, the rows per PR
+ok "B12: two PRs of one unseen repo → two new_repo rows, one notice, one newrepo notification" '[[ $(jq -c "[.items[]|[.key,.reason]]" <<<$j) == "[[\"Some-Org/Zzzt#9\",\"new_repo\"],[\"Some-Org/Zzzt#10\",\"new_repo\"]]" && $(jq ".notices|length" <<<$j) == 1 && $(jq -r ".notices[0]" <<<$j) == "$NL" ]] && (( $(grep -c " newrepo " $T/notify.log) == 1 )) && cmp -s $T/state.json $T/state.before'
 out=$(ph "allow Some-Org/Zzzt")
 ok "B12: ph 'allow Some-Org/Zzzt' → reply line, repos allowed, repo_allow event, request consumed" '[[ $out == "PRWATCH REPO: Some-Org/Zzzt allowed - its pull requests will be picked up at the next check." && $(rp Some-Org/Zzzt) == allowed && ! -e $T/repo/request.json ]] && jq -e "select(has(\"repo_allow\") and .session==\"sid-A\")" $T/events.jsonl >/dev/null'
 ok "B12: next tick → new, queued write"    '[[ $(tko "Some-Org/Zzzt#9" $((SE+1800)) | jq -r ".items[0].reason") == new && $(st "Some-Org/Zzzt#9" status) == queued ]]'
@@ -695,8 +703,11 @@ ok "B12: a repo with an existing prs key is seen: classified normally, not new_r
 # that is neither allowed nor grandfathered by an existing prs key (and promotes a grandfathered repo to allowed); the tick
 # withdraws a tracked key whose repo Jack blocked; a search of exactly 100 rows (gh's page) withdraws nothing.
 ra() { (source $B/prwatch-common.zsh; repo_allowed $T/state.json "$1"); }
+rs() { (source $B/prwatch-common.zsh; repo_status $T/state.json "$1"); }     # prints allowed|blocked|seen|unseen (the tick's blocked lookup, state's promotion lookup)
 reset; $SS set ACT-Training/Zzzt#9 queued sha=abc >/dev/null; seedrepo Nope-Org/Zzzt blocked; seedrepo some-org/zzzt allowed
 ok "B12: repo_allowed: allowed in any case / blocked never / unseen never / prs-key grandfather" 'ra Some-Org/Zzzt && ra SOME-ORG/ZZZT && ! ra Nope-Org/Zzzt && ! ra Other-Org/Zzzt && norepos && ra act-training/zzzt && ! ra Some-Org/Zzzt'
+reset; $SS set ACT-Training/Zzzt#9 queued sha=abc >/dev/null; norepos; seedrepo Some-Org/Zzzt allowed; seedrepo Nope-Org/Zzzt blocked   # ACT-Training/Zzzt: a prs key, no repos entry
+ok "B12: repo_status (lower-case query): allowed / blocked / seen (prs key only) / unseen" '[[ $(rs some-org/zzzt) == allowed && $(rs nope-org/zzzt) == blocked && $(rs act-training/zzzt) == seen && $(rs other-org/zzzt) == unseen ]]'
 reset; norepos; out=$(PRWATCH_NOW=$SE pp); rc=$?
 ok "B12: prep on a repo with no repos entry and no prs key → 25 repo not allowed, nothing cloned" '(( rc == 25 )) && [[ $out == "repo not allowed" && ! -e $T/archive && ! -e $RZL ]]'
 reset; $SS set ACT-Training/Zzzt#9 queued sha=abc >/dev/null; seedrepo ACT-Training/Zzzt blocked; out=$(PRWATCH_NOW=$SE pp); rc=$?
@@ -719,11 +730,20 @@ ok "B12: tracked key ready + ph 'block': a --dry-run tick classifies blocked_rep
 ok "B12: tracked key ready + ph 'block' → next tick withdraws it (withdrawn_from=ready), blocked_repo row with an empty author, no pr view" '[[ $(jq -c ".items[0]|[.key,.reason,.prev,.author]" <<<$j) == "[\"Some-Org/Zzzt#9\",\"blocked_repo\",\"ready\",\"\"]" && $(st "Some-Org/Zzzt#9" status) == withdrawn && $(st "Some-Org/Zzzt#9" withdrawn_from) == ready ]] && ! grep -q "pr view" $T/gh-calls.log'
 out=$(ph "allow some-org/zzzt")
 ok "B12: ph 'allow some-org/zzzt' (lower case) → next tick on Some-Org/Zzzt#9 → new, queued" '[[ $out == "PRWATCH REPO: "*" allowed - "* && $(tko Some-Org/Zzzt#9 $((SE+1800)) | jq -r ".items[0].reason") == new && $(st "Some-Org/Zzzt#9" status) == queued ]]'
+reset; seedrepo Some-Org/Zzzt allowed; $SS set Some-Org/Zzzt#9 posted sha=abc >/dev/null; $SS set Some-Org/Zzzt#10 queued sha=abc >/dev/null
+ph "block Some-Org/Zzzt" >/dev/null; j=$(tko "Some-Org/Zzzt#9,Some-Org/Zzzt#10" $((SE+600)))
+ok "B12: block with a posted and a queued key: posted is exempt (stays posted), queued → withdrawn (withdrawn_from=queued), both rows blocked_repo" '[[ $(jq -c "[.items[]|[.key,.reason]]" <<<$j) == "[[\"Some-Org/Zzzt#9\",\"blocked_repo\"],[\"Some-Org/Zzzt#10\",\"blocked_repo\"]]" && $(st "Some-Org/Zzzt#9" status) == posted && $(st "Some-Org/Zzzt#10" status) == withdrawn && $(st "Some-Org/Zzzt#10" withdrawn_from) == queued ]]'
 reset; j=$(PRWATCH_ONLY_AUTHOR="ev;il" tko Other-Org/Zzzt#3 $SE)
 ok "B12: new_repo row carries the author stripped to [A-Za-z0-9-] ('ev;il' → evil), the notice likewise" '[[ $(jq -c ".items[0]|[.reason,.author]" <<<$j) == "[\"new_repo\",\"evil\"]" && $(jq -r ".notices[0]" <<<$j) == "First PR from Other-Org/Zzzt by evil: type allow Other-Org/Zzzt or block Other-Org/Zzzt" ]]'
-reset; $SS set ACT-Training/Zzzt#9 ready sha=abc miss=1 >/dev/null; seedrepo Nope-Org/Zzzt blocked     # miss=1: one more miss would withdraw it
-k100=( "Nope-Org/Zzzt#"{1..100} ); j=$(tko ${(j:,:)k100} $SE)
-ok "B12: a search of exactly 100 rows → withdrawn pass skipped: the tracked key absent from the list stays ready (miss kept), notice present" '[[ $(jq ".items|length" <<<$j) == 100 && $(st "ACT-Training/Zzzt#9" status) == ready && $(st "ACT-Training/Zzzt#9" miss) == 1 ]] && jq -r ".notices[]" <<<$j | grep -qx "search truncated at 100; nothing withdrawn this check"'
+# the withdrawn pass only runs on the search path (PRWATCH_ONLY_PR unset: tks), so the page-size rule is checked there:
+# $T/search.json holds N rows of one blocked repo (cheap: blocked_repo, no pr view, no write) and the tracked key is absent
+flood() { jq -nc --argjson n $1 '[range(1;$n+1)|{number:.,repository:{nameWithOwner:"Flood-Org/x"},author:{login:"f"}}]' > $T/search.json; }   # flood <rows>
+reset; $SS set ACT-Training/Zzzt#9 ready sha=abc miss=1 >/dev/null; seedrepo Flood-Org/x blocked; flood 100     # miss=1: one more miss would withdraw it
+j=$(tks $SE); j2=$(tks $((SE+900)))
+ok "B12: search of exactly 100 rows, twice → withdrawn pass skipped both times: the tracked key absent from the list stays ready (miss kept), notice present" '[[ $(jq ".items|length" <<<$j) == 100 && $(jq -r ".items[0].reason" <<<$j) == blocked_repo && $(st "ACT-Training/Zzzt#9" status) == ready && $(st "ACT-Training/Zzzt#9" miss) == 1 ]] && jq -r ".notices[]" <<<$j | grep -qx "search truncated at 100; nothing withdrawn this check" && jq -r ".notices[]" <<<$j2 | grep -qx "search truncated at 100; nothing withdrawn this check" && ! grep -q "pr view" $T/gh-calls.log'
+reset; $SS set ACT-Training/Zzzt#9 ready sha=abc >/dev/null; seedrepo Flood-Org/x blocked; flood 99
+j=$(tks $SE); s1=$(st "ACT-Training/Zzzt#9" status); m1=$(st "ACT-Training/Zzzt#9" miss); j2=$(tks $((SE+900)))
+ok "B12: search of 99 rows → the pass runs: first miss recorded (still ready), second tick withdraws it (withdrawn_from=ready), no truncation notice" '[[ $(jq ".items|length" <<<$j) == 99 && $s1 == ready && $m1 == 1 && $(st "ACT-Training/Zzzt#9" status) == withdrawn && $(st "ACT-Training/Zzzt#9" withdrawn_from) == ready ]] && ! jq -r ".notices[]" <<<"$j$j2" | grep -q "search truncated" && jq -r ".notices[]" <<<$j2 | grep -q "ACT-Training/Zzzt#9 no longer requested"'
 for sc in buildrun ngtest dotnettest; do
 ok "$sc: sandbox re-exec excludes PRWATCH_LOGIN and PRWATCH_LOCK_JSON" "head -20 $B/prwatch-$sc.sh | grep -q PRWATCH_LOGIN && head -20 $B/prwatch-$sc.sh | grep -q PRWATCH_LOCK_JSON"; done
 

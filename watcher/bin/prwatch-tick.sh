@@ -57,7 +57,7 @@ if [[ -n $ONLY ]]; then            # test mode: comma-separated direct lookups (
   list=$(for one in ${(s:,:)ONLY}; do jq -nc --arg r ${one%%\#*} --arg n ${one##*\#} --arg a "${PRWATCH_ONLY_AUTHOR:-stub}" \
     '{number:($n|tonumber? // $n),repository:{nameWithOwner:$r},author:{login:$a}}'; done | jq -sc .)
 else                               # every repo the login can see, no owner filter; author is for the new_repo notice
-  list=$(gh search prs --state open --limit 100 --json number,repository,author -- "user-review-requested:@me" 2>/dev/null) \
+  list=$(gh search prs --state open --limit 100 --sort updated --order desc --json number,repository,author -- "user-review-requested:@me" 2>/dev/null) \
     || { $PRW/bin/prwatch-notify.sh error network; out '{"status":"error","kind":"search_failed"}'; }
 fi
 trunc=0; (( $(jq 'length' <<<$list 2>/dev/null || print 0) == 100 )) && trunc=1     # exactly the limit: the page is partial
@@ -65,22 +65,22 @@ trunc=0; (( $(jq 'length' <<<$list 2>/dev/null || print 0) == 100 )) && trunc=1 
 #    remembered, looked up or written; a repo that is blocked or never seen gets no gh pr view. The gate is
 #    repo_allowed (prwatch-common.zsh), the same predicate prep and state set apply. A tracked PR of a repo Jack has
 #    since blocked is withdrawn here (reason blocked_repo), so decide never sees it.
-items=(); seen=(); notices=()
+items=(); seen=(); notices=(); typeset -A noticed   # noticed[<owner/repo>]: one First-PR line and one notification per repo per check
 for pr in ${(f)"$(jq -c '.[]' <<<$list)"}; do
   n=$(jq -r '.number // ""' <<<$pr); R=$(jq -r '.repository.nameWithOwner // ""' <<<$pr); key="$R#$n"
   okkey "$key" || continue
   seen+=$key
   e() { jq -r --arg k $key ".prs[\$k].$1 // \"$2\"" $F; }
   st=$(e status absent)
-  if repo_allowed $F $R; then r=""
-  elif jq -e --arg r ${R:l} '(.repos // {})|with_entries(.key|=ascii_downcase)|has($r)' $F >/dev/null; then r=blocked_repo   # an entry that is not "allowed"
-  else r=new_repo; fi
+  case $(repo_status $F $R) in allowed|seen) r="";; blocked) r=blocked_repo;; *) r=new_repo;; esac
   if [[ -n $r ]]; then               # source gate: blocked, or first sighting (day-1 rule: any prs key for the repo = seen)
     au=""
     if [[ $r == new_repo ]]; then    # the author is read only here, and only its login characters survive
       au=$(jq -r '.author.login // ""' <<<$pr); au=${au//[^A-Za-z0-9-]/}
-      notices+=("$(jq -nc --arg l "First PR from $R by $au: type allow $R or block $R" '$l')")
-      (( ! DRY )) && $PRW/bin/prwatch-notify.sh question $key
+      if [[ -z ${noticed[${R:l}]:-} ]]; then noticed[${R:l}]=1
+        notices+=("$(jq -nc --arg l "First PR from $R by $au: type allow $R or block $R" '$l')")
+        (( ! DRY )) && $PRW/bin/prwatch-notify.sh newrepo $R
+      fi
     elif (( ! DRY )) && [[ $st != (absent|withdrawn|closed|posted|skipped) ]]; then
       $ST set $key withdrawn withdrawn_from=$st >/dev/null     # tracked, now blocked: out of the queue (an existing key may still be set)
     fi

@@ -4,10 +4,10 @@ A Claude Code session that runs on your Mac for eight hours from the moment you 
 looks for open pull requests, in any organisation your GitHub login can see, where you are personally requested as
 reviewer, reviews each one with a council of reviewer agents, and pings you with a macOS notification when a draft
 review is ready. The first pull request from a repository it has not seen before waits until you type
-`allow <owner>/<repo>` (or `block <owner>/<repo>`) in the console; a repository with any pull request already tracked
-counts as allowed and is recorded as such on the next write. The launcher's "Organisations your login can see" line is
-information only, not a gate: a repository is reviewed because you allowed it (or it was already tracked), not because
-of the organisation it belongs to.
+`allow <owner>/<repo>` (or `block <owner>/<repo>`) in the console; a repository with no `repos` entry but a tracked
+pull request counts as allowed and is recorded as `allowed` the first time a new pull request of that repo is queued.
+The launcher's "Organisations your login can see" line is information only, not a gate: a repository is reviewed
+because you allowed it (or it was already tracked), not because of the organisation it belongs to.
 
 **Nothing is posted to GitHub until you pick an action in the console, approve the permission prompt, and click
 Post on a Mac dialog.**
