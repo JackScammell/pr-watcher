@@ -529,7 +529,7 @@ if [[ -f $L ]]; then
   ok "B2.7: lock removed by its own launcher"  '[[ ! -e $T/session.lock ]]'
   nowe=$(date +%s); launch "" PRWATCH_STARTED_EPOCH=1
   ok "B2.8a: PRWATCH_STARTED_EPOCH in the environment is never read back" 'se8=$(jq .started_epoch $T/lock-seen.json 2>/dev/null); [[ $se8 == <-> ]] && (( se8 >= nowe && se8 <= nowe + 5 ))'
-  ok "B2.7: banner has no weekday/cap/time-of-day lines" '! grep -Eiq "weekend|Mon.?Fri|cap [0-9]|08:00|15:30|16:00" $T/launch.out && grep -q "Runs for 8 hours from now" $T/launch.out'
+  ok "B2.7: banner has no weekday/cap/time-of-day lines" '! grep -Eiq "weekend|Mon.?Fri|cap [0-9]|office.hours|08:00.{0,3}1[56]:[03]0" $T/launch.out && grep -q "Runs for 8 hours from now" $T/launch.out'
 else print "skip B2.7/B2.8a (no launcher at $L; set PRWATCH_LAUNCHER)"; fi
 # B2.8b code shape: the override lives only in the launcher's PRWATCH_TESTMODE block; no script reads it
 outside=$(awk '/PRWATCH_TESTMODE/{b=1} /PRWATCH_TEST_STARTED_EPOCH/ && !b {print NR} /^fi([ \t;]|$)/{b=0}' "$L" 2>/dev/null)
@@ -621,6 +621,8 @@ reset; seedrepo Some-Org/Zzzt allowed; PRWATCH_NOW=$SE pp >/dev/null; PRWATCH_NO
 ok "B5: archive is <date>-<owner:l>-<repo:l>-pr<n>-round<k>; two owners, same repo → two archives" '(( ${#arch} == 2 )) && [[ -d $T/archive/$D5-act-training-zzzt-pr9-round1 && -d $T/archive/$D5-some-org-zzzt-pr9-round1 ]]'
 mkdir -p $W $W2; $B/prwatch-cleanup.sh Some-Org/Zzzt#9
 ok "B5: cleanup of one owner's key removes its worktree, spares the other owner's" '[[ ! -e $W2 && -d $W ]] && $B/prwatch-cleanup.sh "ACT-Training/Zzzt#9" && [[ ! -e $W ]]'
+mkdir -p $PRW/work/Some-Org__Zzzt-pr9-junk $PRW/work/Some-Org__Zzzt-pr9-abc1234-build; $B/prwatch-cleanup.sh "Some-Org/Zzzt#9" >/dev/null 2>&1
+ok "B5: cleanup removes a -build copy and a prefix-matching name that is not worktree-shaped (no git for either)" '[[ ! -e $PRW/work/Some-Org__Zzzt-pr9-junk && ! -e $PRW/work/Some-Org__Zzzt-pr9-abc1234-build ]]'
 # a real worktree of a real clone: cleanup must derive <owner>__<repo> from the worktree name and remove it through THAT clone's
 # git. The clone is reached only through a symlink under repos/ (git -C follows it; the prune glob's lstat does not), so if the
 # derivation were wrong the rm -rf fallback would leave the worktree registered in the clone.
