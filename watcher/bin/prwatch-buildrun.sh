@@ -7,15 +7,16 @@ NODE_BIN=( "$HOME/Library/Application Support/Herd/config/nvm/versions/node/"*/b
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH="/opt/homebrew/bin:/usr/local/share/dotnet:${NODE_BIN:+$NODE_BIN:}/usr/bin:/bin" \
   LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob
-PRW=$HOME/prwatch; S=$PRW/state
+PRW=$HOME/prwatch; source $PRW/bin/prwatch-common.zsh
+S=$PRW/state
 if [[ -n ${PRWATCH_TESTMODE:-} ]]; then S=${PRWATCH_STATE_DIR:-$PRW/test/state}; [[ -n ${PRWATCH_STUB_BIN:-} ]] && path=($PRWATCH_STUB_BIN $path); fi
 key=${1:-}; recipe=${2:-}; probe=${3:-}
-[[ $key == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## && $recipe == (dotnet-test|ng-test|ng-probe|dotnet-probe|python-unittest) ]] || exit 64
+okkey "$key" && [[ $recipe == (dotnet-test|ng-test|ng-probe|dotnet-probe|python-unittest) ]] || exit 64
 [[ $recipe == *-probe ]] && { [[ $probe == [a-z0-9-]## ]] || exit 64; }
 [[ "$(jq -r .session_id $S/session.lock 2>/dev/null)" == "${PRWATCH_SESSION_ID:-x}" ]] || { print superseded; exit 6; }
 sha=$(jq -r --arg k $key '.prs[$k].sha // ""' $S/state.json); arch=$(jq -r --arg k $key '.prs[$k].archive // ""' $S/state.json)
 [[ $sha == [0-9a-f](#c40) && -d $arch ]] || { print "no state for $key"; exit 65; }
-k=${key#ACT-Training/}; bw=$PRW/work/${k%%\#*}-pr${k##*\#}-${sha[1,7]}-build; [[ -d $bw ]] || exit 65
+bw=$PRW/work/$(wt_name $key $sha)-build; [[ -d $bw ]] || exit 65
 sln=$(sed -n 's/^dotnet_solutions=//p' $arch/input/base-merge.txt | cut -d, -f1)
 filter=""; patchinfo=""
 if [[ $recipe == *-probe ]]; then

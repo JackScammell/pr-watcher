@@ -6,8 +6,10 @@
 #   | pause <1-480>  (prompthook only: needs a fresh state/pause/request.json; stores paused_until as epoch seconds)
 #   | eod-done (after the 8-hour END only: prints this session's counts {posted,waiting,not_started,failed}; idempotent)
 #   | harness-abort <key>  (reviewers ran in the background: requeue, stop this session; needs agenthook markers)
-# Exit codes: 0 ok | 5 another session's lock (everything but check) | 64 refused stop/pause/eod-done, bad arguments,
-#   retired words | 70 check unreadable or failed write | 75 state lock busy.
+#   | repo-allow <owner/repo> | repo-block <owner/repo>  (prompthook only: needs a fresh state/repo/request.json whose n
+#     is "allow <owner/repo>" / "block <owner/repo>"; stores repos[<owner/repo>] = allowed | blocked)
+# Exit codes: 0 ok | 5 another session's lock (everything but check) | 64 refused stop/pause/eod-done/repo-allow/
+#   repo-block, bad arguments, retired words | 70 check unreadable or failed write | 75 state lock busy.
 # Values must match [A-Za-z0-9._/:@#+-]* — e.g. recommendation=request-changes (not "REQUEST CHANGES").
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/usr/bin:/bin LANG=en_GB.UTF-8 ${TZ:+TZ=$TZ} PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
@@ -28,7 +30,7 @@ lock()   { zsystem flock -t $lw -f lfd $S/state.lock 2>/dev/null || { print "sta
 unlock() { zsystem flock -u $lfd; }
 [[ ${1:-} == (get|stop|harness-abort|eod-done) ]] || lock
 STATUSES='(queued|reviewing|ready|asking|awaiting_decision|posted|skipped|failed|draft_seen|closed|withdrawn|go_ahead_pending|go_ahead_declined)'
-okkey() { [[ $1 == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## ]] || { print "bad key"; exit 64; } }
+okkey() { [[ $1 == ${~KEY_PAT} ]] || { print "bad key"; exit 64; } }     # the shared grammar, with this script's exit
 # every write drops the retired cap fields; run.sh "failed write → 70" relies on the .tmp name
 # MIGRATION (remove after v1.0.0): del(.daily,.cap_override) drops the v1 cap fields the first time a v1 state file is written.
 write() { local f=${@[-1]}; jq "${@[1,-2]}" "del(.daily,.cap_override) | $f" $F > $F.tmp && mv $F.tmp $F; }
@@ -66,6 +68,11 @@ case ${1:-} in
        rm -f $S/pause/request.json; u=$(( ne + $2 * 60 ))
        write --argjson u $u '.paused_until=$u'; ev ",\"pause\":$2,\"until\":$u"
        print -r -- "{\"paused_until\":$u,\"until\":\"$(hhmm $u)\"}" ;;
+  repo-allow|repo-block) verb=${1#repo-}; r=${2:-}; okrepo "$r" || { print "bad repo"; exit 64; }
+       fresh_request repo "$verb $r" || { ev ",\"repo_refused\":\"$r\""
+         print "only Jack can allow or block a repo, by typing allow <owner>/<repo> or block <owner>/<repo> at the prompt"; exit 64; }
+       rm -f $S/repo/request.json; val=${verb}ed
+       write --arg r $r --arg v $val '.repos[$r]=$v'; ev ",\"repo_$verb\":\"$r\""; print $val ;;
   go-ahead) okkey ${2:-}; [[ ${3:-} == [0-9a-f](#c40) ]] || exit 64; write --arg k $2 --arg s $3 '.go_ahead[$k]=$s' ;;
   # miss: the withdrawn-pass counter; changes nothing else, no event, no notification
   miss) okkey ${2:-}; [[ ${3:-} == [0-9]## ]] || exit 64; write --arg k $2 --argjson m $3 'if .prs[$k] then .prs[$k].miss=$m else . end' ;;
@@ -90,7 +97,7 @@ case ${1:-} in
        done
        (( ${#mine} )) || { print "no harness fault recorded"; exit 64; }
        (( live )) && { print "reviewers still running - TaskStop them first"; exit 64; }
-       k=${key#ACT-Training/}; wt=${PRW:A}/work/${k%%\#*}-pr${k##*\#}-     # :A — lsof reports real paths
+       wt=${PRW:A}/work/$(wt_prefix $key)     # :A — lsof reports real paths
        # PR processes left behind: cwd inside the PR's worktrees (anyone's — only PR code works there), or the worktree
        # path on the command line of a descendant of this watcher's launcher (never Jack's own editor or pager)
        root=${PRWATCH_PID:-0}; [[ $root == <-> ]] || root=0

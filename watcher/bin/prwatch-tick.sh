@@ -1,5 +1,6 @@
 #!/bin/zsh
 # prwatch-tick.sh [--dry-run] [--window]  → prints ONE JSON object; non-dry runs record queue/draft/withdrawn state.
+#   Needs PRWATCH_LOGIN (the launcher's export) for anything but --window: without it → error no_login, nothing searched.
 #   --window → pure read of the session window from the lock's started_epoch (no heartbeat, no lock check, no
 #              notification, no state write): in_window (elapsed < 7 h 30: a new council may start) | start_closed
 #              (< 8 h) | session_over (+ eod_due) | error no_session_start / clock_before_start.
@@ -36,6 +37,8 @@ W=$(jq -nc --arg s "$(date -r $se -Iseconds)" --arg sh "$(hhmm $se)" --argjson m
 win() { jq -c --arg st $1 --argjson x "${2:-{\}}" '{status:$st} + . + $x' <<<$W; }
 eod_due() { [[ -f $S/eod-done-$SID ]] && print false || print true; }
 if (( WONLY )); then [[ $wst == session_over ]] && out "$(win $wst "{\"eod_due\":$(eod_due)}")"; out "$(win $wst)"; fi
+# login: the launcher's PRWATCH_LOGIN is the only identity used (never the lock, never gh); no login → nothing is searched
+oklogin "${PRWATCH_LOGIN:-}" || out '{"status":"error","kind":"no_login"}'
 touch $PRW/state/activity 2>/dev/null      # heartbeat: below the --window exit (M13 moves it above → the watchdog refreshes itself)
 # 3. lock ownership (skipped in --dry-run so Jack can test from any Terminal)
 if (( ! DRY )); then
@@ -50,21 +53,40 @@ $ST check >/dev/null || { $PRW/bin/prwatch-notify.sh error state; out '{"status"
 # 5. GitHub, with the real config
 export GH_CONFIG_DIR=$HOME/.config/gh
 gh auth status >/dev/null 2>&1 || { $PRW/bin/prwatch-notify.sh error gh_auth; out '{"status":"error","kind":"gh_auth"}'; }
-if [[ -n $ONLY ]]; then            # test mode: comma-separated direct lookups (may be merged PRs)
-  list=$(for one in ${(s:,:)ONLY}; do jq -nc --arg r ${one%%\#*} --argjson n ${one##*\#} '{number:$n,repository:{nameWithOwner:$r}}'; done | jq -sc .)
-else
-  list=$(gh search prs --owner ACT-Training --state open --limit 100 --json number,repository -- "user-review-requested:@me" 2>/dev/null) \
+if [[ -n $ONLY ]]; then            # test mode: comma-separated direct lookups (may be merged PRs); split as the search would
+  list=$(for one in ${(s:,:)ONLY}; do jq -nc --arg r ${one%%\#*} --arg n ${one##*\#} --arg a "${PRWATCH_ONLY_AUTHOR:-stub}" \
+    '{number:($n|tonumber? // $n),repository:{nameWithOwner:$r},author:{login:$a}}'; done | jq -sc .)
+else                               # every repo the login can see, no owner filter; author is for the new_repo notice
+  list=$(gh search prs --state open --limit 100 --json number,repository,author -- "user-review-requested:@me" 2>/dev/null) \
     || { $PRW/bin/prwatch-notify.sh error network; out '{"status":"error","kind":"search_failed"}'; }
 fi
-# 6. classify (first match wins) — table in plan §5.2
-items=(); seen=()
+# 6. classify (first match wins) — table in plan §5.2. A search row is untrusted: the key is validated before it is
+#    remembered, looked up or written; a repo that is blocked or never seen gets no gh pr view and no state write.
+items=(); seen=(); notices=()
 for pr in ${(f)"$(jq -c '.[]' <<<$list)"}; do
-  n=$(jq -r .number <<<$pr); R=$(jq -r .repository.nameWithOwner <<<$pr); key="$R#$n"; seen+=$key
+  n=$(jq -r '.number // ""' <<<$pr); R=$(jq -r '.repository.nameWithOwner // ""' <<<$pr); key="$R#$n"
+  okkey "$key" || continue
+  seen+=$key
+  e() { jq -r --arg k $key ".prs[\$k].$1 // \"$2\"" $F; }
+  st=$(e status absent)
+  rp=$(jq -r --arg r $R '.repos[$r] // ""' $F)
+  if   [[ $rp == blocked ]]; then r=blocked_repo
+  elif [[ -z $rp ]] && ! jq -e --arg r $R '.prs|keys|map(select(startswith($r+"#")))|length>0' $F >/dev/null; then r=new_repo
+  else r=""; fi
+  if [[ -n $r ]]; then               # source gate: blocked, or first sighting (day-1 rule: any prs key for the repo = seen)
+    au=$(jq -r '.author.login // ""' <<<$pr)
+    items+=("$(jq -nc --arg k $key --arg r $r --arg st $st --arg a "$au" '{key:$k,sha:"",reason:$r,prev:$st,size:0,title:"",author:$a}')")
+    if [[ $r == new_repo ]]; then
+      au=${au//[^A-Za-z0-9-]/}
+      notices+=("$(jq -nc --arg l "First PR from $R by $au: type allow $R or block $R" '$l')")
+      (( ! DRY )) && $PRW/bin/prwatch-notify.sh question $key
+    fi
+    continue
+  fi
   v=$(gh pr view $n -R $R --json headRefOid,isDraft,state,title,author,files 2>/dev/null) || continue
   sha=$(jq -r .headRefOid <<<$v); draft=$(jq -r .isDraft <<<$v)
   size=$(jq '[.files[] | select(.path | test("(lock\\.json|\\.lock|\\.Designer\\.cs)$|/generated/") | not) | .additions + .deletions] | add // 0' <<<$v)
-  e() { jq -r --arg k $key ".prs[\$k].$1 // \"$2\"" $F; }
-  st=$(e status absent); ssha=$(e sha ""); att=$(e attempts 0)
+  ssha=$(e sha ""); att=$(e attempts 0)
   (( ! DRY )) && [[ $(e miss 0) != 0 ]] && $ST miss $key 0 >/dev/null     # seen again: reset the withdrawn-miss counter
   ga=$(jq -r --arg k $key '.go_ahead[$k] // ""' $F)
   if   [[ $draft == true ]]; then r=ignored_draft
@@ -77,7 +99,7 @@ for pr in ${(f)"$(jq -c '.[]' <<<$list)"}; do
   elif [[ $st == (posted|skipped|closed|draft_seen|queued|go_ahead_declined|withdrawn) && $sha != $ssha ]]; then r=updated
   elif [[ $st == posted ]]; then
     pa=$(e posted_at "")          # UTC Z (prwatch-state.sh), same format as timeline created_at
-    rr=$(gh api "repos/$R/issues/$n/timeline" --paginate --jq '[.[]|select(.event=="review_requested" and .requested_reviewer.login=="JackScammell")|.created_at]|last' 2>/dev/null)
+    rr=$(gh api "repos/$R/issues/$n/timeline" --paginate 2>/dev/null | jq -rs --arg me "$PRWATCH_LOGIN" '[.[][]|select(.event=="review_requested" and .requested_reviewer.login==$me)|.created_at]|last')
     [[ -n $rr && $rr != null && $rr > $pa ]] && r=rerequested_same_sha || r=ignore
   elif [[ $st == (skipped|go_ahead_declined) ]]; then r=ignore
   elif [[ $st == withdrawn && $(e withdrawn_from "") == (ready|asking|awaiting_decision) && -f $(e archive "")/draft/review-body.md ]]; then
@@ -98,8 +120,7 @@ for pr in ${(f)"$(jq -c '.[]' <<<$list)"}; do
 done
 # 7. withdrawn pass: tracked in an active state but missing from the search on TWO consecutive ticks → withdrawn
 #    (one notice each). The first miss only records miss=1, so an empty or partial search result withdraws nothing.
-#    Not in ONLY test mode.
-notices=()
+#    Not in ONLY test mode (new_repo notices above are added in every mode).
 if [[ -z $ONLY ]] && (( ! DRY )); then
   for kv in ${(f)"$(jq -r '.prs|to_entries[]|select(.value.status|test("^(queued|ready|asking|awaiting_decision|go_ahead_pending|reviewing|failed)$"))|"\(.key) \(.value.status) \(.value.miss // 0)"' $F)"}; do
     [[ -n $kv ]] || continue; k=${kv%% *}; kst=${${kv#* }%% *}; km=${kv##* }

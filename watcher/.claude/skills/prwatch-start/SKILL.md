@@ -28,7 +28,7 @@ A hook allows only this one job, exactly as written (recurring), and refuses eve
 ## 3. Banner
 Run `/Users/jack/prwatch/bin/prwatch-tick.sh --window` and print, taking `started`, `starts_until` and `ends_at` from its JSON (never from your own sense of time):
 - "Checking every 15 min for 8 hours from <started_hm>. New reviews start in the first 7½ hours (until <starts_until>); decisions until <ends_at>."
-- "Commands: `d` (drafts now), `status`, `pause 60`, `stop`. Esc stops a running review (it resumes at the next check)."
+- "Commands: `d` (drafts now), `status`, `pause 60`, `stop`, `allow <owner>/<repo>` or `block <owner>/<repo>` (for a first PR from a repo it has not seen). Esc stops a running review (it resumes at the next check)."
 - "At permission prompts choose Yes — never 'Yes, and don't ask again'."
 If `--window` prints `error`, print its `kind` instead of the first line and add "Close this window and double-click PR Watcher again." (`--window` sends no notification).
 

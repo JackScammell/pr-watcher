@@ -1,9 +1,11 @@
 #!/bin/zsh
-# prwatch-prompthook.sh prompt|sched  — hook, never called by the model. The only way to stop or pause the session.
-#   prompt (UserPromptSubmit): a prompt that is exactly "stop" or "pause N" (trimmed, any case) is Jack's: write
-#          state/stop/request.json or state/pause/request.json {session,n} and run prwatch-state.sh stop / pause N,
-#          which refuse without that fresh request. Reply to the model with one "PRWATCH STOP:" / "PRWATCH PAUSE:"
-#          line. Any other prompt: nothing printed or written. Always exit 0 (never blocks a prompt).
+# prwatch-prompthook.sh prompt|sched  — hook, never called by the model. The only way to stop or pause the session, or
+# to allow or block a repo.
+#   prompt (UserPromptSubmit): a prompt that is exactly "stop", "pause N", "allow <owner>/<repo>" or "block
+#          <owner>/<repo>" (trimmed, any case) is Jack's: write state/stop|pause|repo/request.json {session,n} and run
+#          prwatch-state.sh stop / pause N / repo-allow|repo-block <owner/repo>, which refuse without that fresh
+#          request. Reply to the model with one "PRWATCH STOP:" / "PRWATCH PAUSE:" / "PRWATCH REPO:" line. Any other
+#          prompt: nothing printed or written. Always exit 0 (never blocks a prompt).
 #   sched (PreToolUse, any tool named like Cron/Schedule/Wakeup/Trigger): a scheduled prompt could reach UserPromptSubmit
 #          like Jack's typing → only /prwatch-start's one CronCreate job, CronList and CronDelete; anything else exit 2.
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/usr/bin:/bin LANG=en_GB.UTF-8 ${TZ:+TZ=$TZ} PRWATCH_CLEAN=1 \
@@ -20,17 +22,22 @@ plain() { print -r -- ${${1//[^A-Za-z0-9 ().,-]/}[1,80]}; }          # safe for 
 case ${1:-} in
   prompt)
     t=$(trim "$(j '.prompt // ""')")
-    if   [[ $t == (#i)stop ]]; then kind=stop; n=stop; TAG="PRWATCH STOP"; bad="not done"
-    elif [[ $t == (#i)pause\ ##[0-9](#c1,3) ]]; then kind=pause; n=${t##* }; TAG="PRWATCH PAUSE"; bad="not changed"   # the range is checked by state.sh
+    if   [[ $t == (#i)stop ]]; then kind=stop; n=stop; cmd=(stop); TAG="PRWATCH STOP"; bad="not done"
+    elif [[ $t == (#i)pause\ ##[0-9](#c1,3) ]]; then kind=pause; n=${t##* }; cmd=(pause $n); TAG="PRWATCH PAUSE"; bad="not changed"   # the range is checked by state.sh
+    elif [[ $t == (#i)(allow|block)\ [^[:space:]]## ]] && okrepo "${t#* }"; then     # "allow ../x", "allow a/b#1": not ours
+         kind=repo; verb=${(L)t%% *}; r=${t#* }; n="$verb $r"; cmd=(repo-$verb $r); TAG="PRWATCH REPO"; bad="not changed"
     else exit 0; fi                                     # "stop please", "pause x", "pause 9999", "cap 8": not ours
     [[ "$(/usr/bin/jq -r .session_id $S/session.lock 2>/dev/null)" == "${PRWATCH_SESSION_ID:-x}" ]] \
       || { print "$TAG: $bad (this window is not the current watcher)."; exit 0; }
     mkdir -p $S/$kind
-    /usr/bin/jq -n --arg s $PRWATCH_SESSION_ID --arg n $n '{session:$s,n:$n}' > $S/$kind/request.json
-    out=$($PRW/bin/prwatch-state.sh $kind ${${kind:#stop}:+$n} 2>/dev/null); rc=$?    # stdout only: result, or the refusal reason
+    /usr/bin/jq -n --arg s $PRWATCH_SESSION_ID --arg n "$n" '{session:$s,n:$n}' > $S/$kind/request.json
+    out=$($PRW/bin/prwatch-state.sh $cmd 2>/dev/null); rc=$?    # stdout only: result, or the refusal reason
     rm -f $S/$kind/request.json                         # single use, whatever happened
     if (( rc != 0 )); then print -r -- "$TAG: $bad ($(plain "$out"))."
     elif [[ $kind == stop ]]; then print -r -- "$TAG: the watcher is stopped for this session - no more checks or reviews."
+    elif [[ $kind == repo ]]; then
+         [[ $verb == allow ]] && print -r -- "$TAG: $r allowed - its pull requests will be picked up at the next check." \
+                              || print -r -- "$TAG: $r blocked - its pull requests are ignored."
     else u=$(/usr/bin/jq -r '.until // ""' <<<$out 2>/dev/null); [[ $u == [0-9][0-9]:[0-9][0-9] ]] || u="?"
          print -r -- "$TAG: checks skipped for $n minutes (until $u)."; fi
     exit 0 ;;

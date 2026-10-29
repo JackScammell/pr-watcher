@@ -24,9 +24,30 @@ started_epoch() { local v; v=$(/usr/bin/jq -r '.started_epoch // ""' $1/session.
   [[ $v == [0-9]## ]] || return 1; print -r -- $v; }
 # hhmm <epoch> — for humans: HH:MM, plus "tomorrow" / "yesterday" / "on <date>" when it is not the current day
 # session_id_ok <sid> — empty, or [A-Za-z0-9_-]+ : it is written into file names and JSON, so nothing else is accepted
-session_id_ok() { [[ -z $1 || $1 == [A-Za-z0-9_-]## ]] }
+session_id_ok() { emulate -L zsh; setopt extendedglob; [[ -z $1 || $1 == [A-Za-z0-9_-]## ]] }
 hhmm() { local t d n nd; t=$(date -r $1 +%H:%M); d=$(date -r $1 +%F); n=$(now_epoch) || n=$(date +%s); nd=$(date -r $n +%F)
   if   [[ $d == $nd ]];                          then print -r -- $t
   elif [[ $d == $(date -r $((n+86400)) +%F) ]]; then print -r -- "$t tomorrow"
   elif [[ $d == $(date -r $((n-86400)) +%F) ]]; then print -r -- "$t yesterday"
   else print -r -- "$t on $d"; fi; }
+# Keys and names — the one grammar (extendedglob patterns, which each matcher turns on for itself; callers match with [[ $x == ${~PAT} ]]).
+#   key = <owner>/<repo>#<n>: owner is a GitHub login (1-39 chars, letters digits and hyphens, no leading or trailing
+#   hyphen); repo never starts with "-" or "." (so never ".", ".." or an option); n has no leading zero.
+OWNER_PAT='[A-Za-z0-9](|[A-Za-z0-9-](#c0,37)[A-Za-z0-9])'
+REPO_PAT='[A-Za-z0-9_][A-Za-z0-9._-](#c0,99)'
+NUM_PAT='[1-9][0-9](#c0,6)'
+KEY_PAT="$OWNER_PAT/$REPO_PAT\\#$NUM_PAT"                 # \# : a literal hash, not the extendedglob repeat operator
+okkey()   { emulate -L zsh; setopt extendedglob; [[ $1 == ${~KEY_PAT} ]] }                      # 0 = a well-formed key; prints nothing
+okrepo()  { emulate -L zsh; setopt extendedglob; [[ $1 == ${~OWNER_PAT}/${~REPO_PAT} ]] }       # 0 = a well-formed <owner>/<repo>
+oklogin() { emulate -L zsh; setopt extendedglob; [[ $1 == ${~OWNER_PAT} ]] }                    # 0 = a well-formed GitHub login (same grammar as an owner)
+# key_split <key> — sets o, repo, n in the caller's scope (no local on purpose). Call only after okkey.
+key_split() { local rest; o=${1%%/*}; rest=${1#*/}; repo=${rest%%\#*}; n=${rest##*\#}; }
+# Worktree and archive names are built here and nowhere else ("__" is unambiguous: an owner cannot contain "_").
+#   wt_prefix <key>              → <owner>__<repo>-pr<n>-            (what cleanup and harness-abort match on)
+#   wt_name <key> <sha>          → <owner>__<repo>-pr<n>-<sha7>      (callers add $PRW/work/ and -build)
+#   archive_name <key> <round> [<date>] → <date>-<owner>-<repo>-pr<n>-round<round>, owner and repo lower-cased
+wt_prefix()    { local o repo n; key_split $1; print -r -- "${o}__${repo}-pr${n}-"; }
+wt_name()      { local o repo n; key_split $1; print -r -- "${o}__${repo}-pr${n}-${2[1,7]}"; }
+archive_name() { local o repo n; key_split $1; print -r -- "${3:-$(date +%F)}-${o:l}-${repo:l}-pr${n}-round${2}"; }
+WT_PAT='[A-Za-z0-9-]##__[A-Za-z0-9._-]##-pr[0-9]##-[0-9a-f](#c7)(|-build)'   # a worktree basename
+WT_GLOB='*__*-pr[0-9]*-[0-9a-f]*'                                            # sweeps and kill_strays: $PRW/work/${~WT_GLOB}

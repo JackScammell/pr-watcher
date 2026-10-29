@@ -2,8 +2,9 @@
 # Background-agent backstop tests (test mode, stub osascript). Run: ~/prwatch/test/harness/run.sh
 # Covers prwatch-agenthook.sh (post/pre), prwatch-state.sh harness-abort, cleanup --sweep marker pruning, notify
 # templates, guard, settings, launcher, skill wording, the 8-hour session window (B1), hook-owned stop/pause (B2),
-# the launcher exit notice (B2.7/B2.8), the scheduling gate (B8), prose values (B9), legacy inputs (B10), the state
-# lock on set (B11) and repo↔install sync. Runs the INSTALLED scripts.
+# the launcher exit notice (B2.7/B2.8), the key grammar (B4), owner-bearing paths and prep/post arguments (B5), the
+# PRWATCH_LOGIN plumbing (B6), the scheduling gate (B8), prose values (B9), legacy inputs (B10), the state lock on set
+# (B11), the first-sighting repo gate (B12) and repo↔install sync. Runs the INSTALLED scripts.
 #   PRWATCH_LAUNCHER=<repo>/launcher/PR\ Watcher.command  (default: the Desktop copy)
 #   PRWATCH_REPO=<repo>/watcher                           (for the sync check; skipped visibly if missing)
 # Mutations (plan §7, applied to the installed copy; each must fail the named check):
@@ -11,19 +12,26 @@
 #   M2  START_LIMIT compare < → <=                        → "B1: T+7h30 → start_closed"
 #   M3  END compare >= → >                                → "B1: T+8h → session_over"
 #   M4  state.sh stop skips the request check            → "B2: stop with no request → 64, nothing stopped"
+#   M5  wt_name drops the owner                          → "B5: cleanup of one owner's key removes its worktree, spares the other owner's"
+#   M6  launcher stops exporting PRWATCH_LOGIN           → "B6: launcher writes login into the lock and exports PRWATCH_LOGIN"
+#   M7  JackScammell hard-coded back into tick            → "B6: timeline re-request filtered by PRWATCH_LOGIN (other → ignore)" + "B5: no JackScammell in bin, .claude, CLAUDE.md"
+#   M8  owner charset widened (e.g. admits '.')           → "B4: refuse '../x#1'"
 #   M11 sched gate accepts any cron with /prwatch-tick   → "B8: other cadence (*/10) denied"
 #   M13 --window touches the heartbeat                   → "B1.18: --window leaves the heartbeat alone"
 #   M14 prep skips the window check                      → "B1.18: prep at T+7h31 → window closed, nothing done"
+#   M15 post defaults the owner (Vision#1 → ACT-Training) → "B5: post --key Vision#1 → 64 bad arguments (no default owner)"
 emulate -L zsh; set -u; setopt nullglob
 export TZ=Europe/London
 PRW=$HOME/prwatch; B=$PRW/bin; FX=${0:A:h}/fixtures; fail=0; n=0
-T=$(mktemp -d /tmp/pwh.XXXXXX); W=$PRW/work/Zzzt-pr9-abc; pids=()
-trap 'kill $pids 2>/dev/null; rm -rf $T $W $PRW/work/Zzzt-pr9-0123456-build' EXIT
+T=$(mktemp -d /tmp/pwh.XXXXXX); W=$PRW/work/ACT-Training__Zzzt-pr9-abc; W2=$PRW/work/Some-Org__Zzzt-pr9-abc; PA=$PRW/test/harness-post-$$; pids=()
+trap 'kill $pids 2>/dev/null; rm -rf $T $W $W2 $PA $PRW/work/ACT-Training__Zzzt-pr9-0123456-build' EXIT
 export PRWATCH_TESTMODE=1 PRWATCH_STATE_DIR=$T PRWATCH_STUB_BIN=$PRW/test/stub PRWATCH_SESSION_ID=sid-A PRWATCH_PID=1
+export PRWATCH_LOGIN=stubuser                           # what the launcher exports from `gh api user` (the stub gh answers the same; B6 varies it)
 SE=$(date -j -f %Y-%m-%dT%H:%M:%S 2026-09-29T09:00:00 +%s)        # session start: a Tuesday, BST. Ticks use PRWATCH_NOW=$((SE+offset))
 ok()   { (( n++ )); if eval "$2"; then print "ok   $1"; else print "FAIL $1"; (( fail++ )); fi; }
 lockfor() { jq -nc --arg s ${1:-sid-A} --argjson e ${2:-$SE} '{session_id:$s,pid:1,started_epoch:$e}' > $T/session.lock; }
-reset() { rm -rf $T/*(N) $T/.*(N); print '{"prs":{},"go_ahead":{},"repos":{}}' > $T/state.json; lockfor sid-A $SE; }
+reset() { rm -rf $T/*(N) $T/.*(N); print '{"prs":{},"go_ahead":{},"repos":{"ACT-Training/Vision":"allowed","ACT-Training/Zzzt":"allowed"}}' > $T/state.json; lockfor sid-A $SE; }   # repos seeded: an unseen repo is new_repo (B12)
+norepos() { jq -c '.repos={}' $T/state.json > $T/s && mv $T/s $T/state.json; }
 review() { $B/prwatch-state.sh set ACT-Training/Vision#1 reviewing sha=abc step=council attempts=1 >/dev/null; }
 post() { $B/prwatch-agenthook.sh post < $FX/$1 2>$T/err; }
 ended() { $B/prwatch-agenthook.sh ended < $FX/$1 2>/dev/null; }
@@ -210,6 +218,7 @@ ok "guard: canonical harness-abort"        '[[ $(g "$SS harness-abort ACT-Traini
 ok "guard: env-prefixed harness-abort"     '[[ $(g "PRWATCH_SESSION_ID=x $SS harness-abort ACT-Training/Vision#1") == 2 ]]'
 ok "guard: piped harness-abort"            '[[ $(g "$SS harness-abort ACT-Training/Vision#1 | cat") == 2 ]]'
 ok "guard: model cannot run agenthook"     '[[ $(g "$PRW/bin/prwatch-agenthook.sh post") == 2 ]]'
+ok "guard: test/guard-cases.txt and test/sec/guard-cases.tsv identical" 'cmp -s $PRW/test/guard-cases.txt $PRW/test/sec/guard-cases.tsv'
 C=$PRW/config/settings.json
 ok "settings: env var set"                 '[[ "$(jq -r .env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS $C)" == 1 ]]'
 ok "settings: post hook on Agent|TaskStop" 'jq -e ".hooks.PostToolUse[]|select(.matcher==\"Agent|TaskStop\")|.hooks[0].command|endswith(\"agenthook.sh post\")" $C >/dev/null'
@@ -245,7 +254,7 @@ ok "shim: explicit template untouched"      '[[ $(mk $MT/exp.XXXX) == $MT/exp.??
 ok "shim: unknown option passed through"    '[[ "$(mk --bogus)" == *unrecognized* || "$(mk --bogus)" == *illegal* || "$(mk --bogus)" == *usage* ]]'
 
 # --- prwatch-ngtest.sh: arguments, state, and the sandbox profile it generates
-NG=$B/prwatch-ngtest.sh; NSHA=0123456789abcdef0123456789abcdef01234567; NBW=$PRW/work/Zzzt-pr9-0123456-build
+NG=$B/prwatch-ngtest.sh; NSHA=0123456789abcdef0123456789abcdef01234567; NBW=$PRW/work/ACT-Training__Zzzt-pr9-0123456-build
 reset; mkdir -p $T/arch/input $T/arch/reviews $NBW/frontend; : > $NBW/frontend/karma.conf.js; print '{"is_laravel":false}' > $T/arch/input/profile.json
 $SS set ACT-Training/Zzzt#9 reviewing sha=$NSHA archive=$T/arch >/dev/null
 ng() { $NG "$@" >/dev/null 2>&1; print $?; }
@@ -341,18 +350,28 @@ ok "hand-back never a decision (inv. 1 + decide)" 'grep -q "hand-back" <(sed -n 
 ok "review skill: harness-abort retried when state busy" 'grep -q "for \"state busy\", run it again" $S7/prwatch-review/SKILL.md'
 
 # ============================================================================================================
-# B1 — the 8-hour window from the lock's started_epoch (plan D18). Stub gh: every PR is open at sha abc, 0 lines.
+# B1 — the 8-hour window from the lock's started_epoch (plan D18). Stub gh: every PR is open at sha abc, 0 lines;
+# `api user` answers ${PRWATCH_STUB_LOGIN-stubuser} (the launcher's login capture, B6), `api user/orgs` nothing, a
+# timeline call the raw JSON of one review_requested event for that same login (dated 2099, so it is always after
+# posted_at; the tick pipes it into jq --arg me); every call is appended to $T/gh-calls.log (B6/B12 assert that no
+# `pr view` happened). Env lookups happen at run time (quoted heredoc).
 mkstub() { mkdir -p $T/stub; ln -sf $PRW/test/stub/osascript $T/stub/osascript
   cat > $T/stub/gh <<'EOF'
 #!/bin/zsh
-[[ "$1 $2" == "pr view" ]] && print '{"headRefOid":"abc","isDraft":false,"state":"OPEN","title":"t","author":{"login":"x"},"files":[]}'
+print -r -- "$*" >> "${PRWATCH_STATE_DIR:-/tmp}/gh-calls.log"
+case "$1 $2" in
+  "pr view") print '{"headRefOid":"abc","isDraft":false,"state":"OPEN","title":"t","author":{"login":"x"},"files":[]}' ;;
+  "api user") print -r -- "${PRWATCH_STUB_LOGIN-stubuser}" ;;
+  api\ repos/*/timeline) /usr/bin/jq -nc --arg l "${PRWATCH_STUB_LOGIN-stubuser}" '[{event:"review_requested",requested_reviewer:{login:$l},created_at:"2099-01-01T00:00:00Z"}]' ;;
+esac
 exit 0
 EOF
   chmod +x $T/stub/gh; }
 ep()  { date -j -f %Y-%m-%dT%H:%M:%S "$1:00" +%s; }                                     # local wall clock → epoch (TZ=Europe/London)
 win() { PRWATCH_NOW=$1 $B/prwatch-tick.sh --window ${2:-} 2>/dev/null; }      # the pure read; $2 may be --dry-run
 wst() { win "$@" | jq -r '[.status, .kind // "-"] | join(" ")'; }
-tk()  { mkstub; PRWATCH_STUB_BIN=$T/stub PRWATCH_ONLY_PR=ACT-Training/Zzzt#9 PRWATCH_NOW=$1 $B/prwatch-tick.sh ${2:-} 2>/dev/null; }   # full tick ($2 = --dry-run)
+tko() { local o=$1; shift; mkstub; PRWATCH_STUB_BIN=$T/stub PRWATCH_ONLY_PR=$o PRWATCH_NOW=$1 $B/prwatch-tick.sh ${2:-} 2>/dev/null; }   # full tick for ONLY=$1 ($3 = --dry-run)
+tk()  { tko ACT-Training/Zzzt#9 "$@"; }                                                                                  # full tick ($2 = --dry-run)
 reset
 ok "B1: T+0 → in_window"                   '[[ $(wst $SE) == "in_window -" ]]'
 ok "B1: T+7h29m59s → in_window"            '[[ $(wst $((SE+26999))) == "in_window -" ]]'
@@ -403,7 +422,8 @@ reset; lockfor sid-B; HB=$PRW/state/activity; mkdir -p $PRW/state; touch -t 2026
 win $SE >/dev/null; win $SE --dry-run >/dev/null
 ok "B1.18: --window leaves the heartbeat alone" '(( $(stat -f %m $HB) == hb0 ))'; touch $HB     # restore the live heartbeat
 ok "B1.18: --window under another session's lock: no notice, no lock change" '[[ ! -e $T/notify.log && $(jq -r .session_id $T/session.lock) == sid-B && $(jq "has(\"recreated\")" $T/session.lock) == false ]]'
-pp() { PRWATCH_ARCHIVE_DIR=$T/archive PRWATCH_GIT_BASE=$T/nogit $B/prwatch-prep.sh Zzzt 9 0123456789abcdef0123456789abcdef01234567 1 2>&1; }
+pk() { PRWATCH_ARCHIVE_DIR=$T/archive PRWATCH_GIT_BASE=$T/nogit $B/prwatch-prep.sh "$@" 2>&1; }   # prep <key> <sha40> <round> against a git base that cannot be cloned
+pp() { pk ACT-Training/Zzzt#9 0123456789abcdef0123456789abcdef01234567 1; }
 WX=$(grep 'window closed for new reviews' $B/prwatch-prep.sh | grep -oE 'exit [0-9]+' | grep -oE '[0-9]+' | sort -u)   # the one window exit code
 ok "B1.18: prep defines one window exit code" '[[ $WX == <-> ]] && (( WX >= 20 && WX != 24 && WX != 26 ))'
 reset; out=$(PRWATCH_NOW=$((SE+27060)) pp); rc=$?
@@ -481,12 +501,13 @@ mkclaude() { mkdir -p $T/stub; cat > $T/stub/claude <<'EOF'
 cp "$PRWATCH_STATE_DIR/session.lock" "$PRWATCH_STATE_DIR/lock-seen.json"
 print -r -- "PRWATCH_STARTED_EPOCH=${PRWATCH_STARTED_EPOCH:-}" > "$PRWATCH_STATE_DIR/env-seen.txt"
 print -r -- "PRWATCH_LOCK_JSON=${PRWATCH_LOCK_JSON:-}" >> "$PRWATCH_STATE_DIR/env-seen.txt"
+print -r -- "PRWATCH_LOGIN=${PRWATCH_LOGIN:-}" >> "$PRWATCH_STATE_DIR/env-seen.txt"
 [[ ${PWH_CLAUDE_STOP:-} == 1 ]] && : > "$PRWATCH_STATE_DIR/stopped-$PRWATCH_SESSION_ID"
 exit 0
 EOF
 chmod +x $T/stub/claude; }
 launch() {   # launch <started_epoch|""> [extra env assignments]   (reset wipes $T, so the stubs are remade after it)
-  reset; mkstub; mkclaude; rm -f $T/notify-throttle/*(N); PRWATCH_STUB_BIN=$T/stub PRWATCH_TEST_STARTED_EPOCH=$1 env "${@:2}" /bin/zsh "$L" </dev/null >$T/launch.out 2>&1; print $? > $T/launch.rc; }
+  reset; mkstub; mkclaude; rm -f $T/notify-throttle/*(N); PRWATCH_STUB_BIN=$T/stub PRWATCH_TEST_STARTED_EPOCH=$1 env -u PRWATCH_LOGIN "${@:2}" /bin/zsh "$L" </dev/null >$T/launch.out 2>&1; print $? > $T/launch.rc; }   # -u: the login must come from the launcher, not from this harness (M6)
 if [[ -f $L ]]; then
   nowe=$(date +%s); launch $((nowe-32400))
   ok "B2.7: launcher ran the stub claude, passed the lock and the start epoch" '[[ -f $T/lock-seen.json && $(jq .started_epoch $T/lock-seen.json) == $((nowe-32400)) ]] && grep -q "^PRWATCH_STARTED_EPOCH=$((nowe-32400))$" $T/env-seen.txt && [[ $(sed -n "s/^PRWATCH_LOCK_JSON=//p" $T/env-seen.txt | jq -r .session_id) == $(jq -r .session_id $T/lock-seen.json) ]]'
@@ -576,6 +597,82 @@ reset; hold 3; out=$(PRWATCH_LOCK_WAIT=1 $SS set ACT-Training/Vision#1 queued sh
 ok "B11: lock held elsewhere → 75, nothing written" '(( rc == 75 )) && [[ $out == "state busy" && $(st ACT-Training/Vision#1 status) == null && ! -e $T/events.jsonl ]]'
 reset; hold 1; $SS set ACT-Training/Vision#1 queued sha=abc >/dev/null; rc=$?
 ok "B11: waits for a short lock, then writes" '(( rc == 0 )) && [[ $(st ACT-Training/Vision#1 status) == queued ]]'
+
+# B4 — one key grammar (D12) at three entry points: state get (0 / 64), cleanup (0 / 64), ngtest (past the key check / 64)
+b4() { $B/prwatch-$1.sh "${@:2}" >/dev/null 2>&1; print $?; }
+o256=$(printf 'a%.0s' {1..256})
+reset
+for k in 'ACT-Training/Vision#1803' 'Some-Org/repo#1' 'JackScammell/pr-watcher#1' 'a-b-c-d/e.f-g_h#99999'; do   # owner grammar has no . or _ (D12), so not the plan's a.b-c_d
+ok "B4: accept '$k'"                        '[[ $(b4 state get "$k") == 0 && $(b4 cleanup "$k") == 0 && $(b4 ngtest "$k" frontend) != 64 ]]'; done
+for k in '../x#1' 'a/b/c#1' 'A/B#x' 'A/B#' 'A/B' '/B#1' 'A/#1' 'A/B#1#2' 'A/B#1 ' 'A/B#01' '-x/y#1' 'a/-y#1' 'a/.y#1' "$o256/y#1" 'ACT-Training/Vision#1;ls'; do
+ok "B4: refuse '${k[1,40]}'"                '[[ $(b4 state get "$k") == 64 && $(b4 cleanup "$k") == 64 && $(b4 ngtest "$k" frontend) == 64 ]]'; done
+
+# B5 — owner-bearing paths (D13/D14): names, prep/post argument validation, no hard-coded login or org
+reset; PRWATCH_NOW=$SE pp >/dev/null; PRWATCH_NOW=$SE pk Some-Org/Zzzt#9 $NSHA 1 >/dev/null; D5=$(date +%F); arch=($T/archive/*(/N))
+ok "B5: archive is <date>-<owner:l>-<repo:l>-pr<n>-round<k>; two owners, same repo → two archives" '(( ${#arch} == 2 )) && [[ -d $T/archive/$D5-act-training-zzzt-pr9-round1 && -d $T/archive/$D5-some-org-zzzt-pr9-round1 ]]'
+mkdir -p $W $W2; $B/prwatch-cleanup.sh Some-Org/Zzzt#9
+ok "B5: cleanup of one owner's key removes its worktree, spares the other owner's" '[[ ! -e $W2 && -d $W ]] && $B/prwatch-cleanup.sh "ACT-Training/Zzzt#9" && [[ ! -e $W ]]'
+for args in "Zzzt 9 $NSHA 1" "../x#1 $NSHA 1" "A/B#01 $NSHA 1" "ACT-Training/Zzzt#9 $NSHA"; do reset; out=$(PRWATCH_NOW=$SE pk ${=args}); rc=$?
+ok "B5: prep '${args//$NSHA/<sha40>}' → 64 bad arguments, nothing done" '(( rc == 64 )) && [[ $out == "bad arguments" && ! -e $T/archive ]]'; done
+P5=$B/prwatch-post.sh
+po() { PRWATCH_STUB_BIN=$T/stub $P5 "$@" 2>&1; print "rc=$?"; }                 # dry post (test mode), stub gh + stub osascript (Cancel)
+postsetup() { reset; mkstub; mkdir -p $PA/draft; print -- $'<!-- prwatch round=1 sha=0123456 -->\nLooks fine.' > $PA/draft/review-body.md
+  BS=$(shasum -a 256 $PA/draft/review-body.md | cut -c1-12); $SS set ACT-Training/Vision#1 ready sha=$NSHA archive=${1:-$PA} >/dev/null; }
+postsetup
+ok "B5: post --repo/--pr (old shape) → 64"  '[[ "$(po --repo Vision --pr 1 --sha $NSHA --event approve --body-sha $BS)" == *"rc=64" ]]'
+ok "B5: post without --key → 64 bad arguments" '[[ "$(po --sha $NSHA --event approve --body-sha $BS)" == *"bad arguments"*"rc=64" ]]'
+ok "B5: post --key Vision#1 → 64 bad arguments (no default owner)" '[[ "$(po --key Vision#1 --sha $NSHA --event approve --body-sha $BS)" == *"bad arguments"*"rc=64" ]]'
+ok "B5: post --key ../x#1 / 'ACT-Training/Vision#1;ls' → 64 bad arguments" '[[ "$(po --key ../x#1 --sha $NSHA --event approve --body-sha $BS)" == *"bad arguments"*"rc=64" && "$(po --key "ACT-Training/Vision#1;ls" --sha $NSHA --event approve --body-sha $BS)" == *"bad arguments"*"rc=64" ]]'
+ok "B5: post with a valid --key and no login → 64 no login" '[[ "$(PRWATCH_LOGIN= po --key ACT-Training/Vision#1 --sha $NSHA --event approve --body-sha $BS)" == *"no login"*"rc=64" ]]'
+ok "B5: the same call with a login reaches the dialog (stub Cancel → 11)" '[[ "$(po --key ACT-Training/Vision#1 --sha $NSHA --event approve --body-sha $BS)" == *"Not posted"*"rc=11" ]]'
+postsetup $T/arch
+ok "B5: post archive outside the allowed roots → 64 archive path not recognised" '[[ "$(po --key ACT-Training/Vision#1 --sha $NSHA --event approve --body-sha $BS)" == *"archive path not recognised"*"rc=64" ]]'
+ok "B5: no JackScammell in bin, .claude, CLAUDE.md" '! grep -rq JackScammell $B $PRW/.claude $PRW/CLAUDE.md'
+ok "B5: no ACT-Training in bin or config"   '! grep -rq ACT-Training $B $PRW/config'
+
+# B6 — PRWATCH_LOGIN plumbing (D15): the re-request filter, fail-closed ticks and prep, launcher capture, query shape
+reset; $SS set ACT-Training/Zzzt#9 posted sha=abc >/dev/null
+ok "B6: timeline re-request filtered by PRWATCH_LOGIN (other → ignore)" '[[ $(PRWATCH_LOGIN=other tk $SE | jq -r ".items[0].reason") == ignore && $(st "ACT-Training/Zzzt#9" status) == posted ]]'
+ok "B6: the stub login → rerequested_same_sha, requeued" '[[ $(tk $SE | jq -r ".items[0].reason") == rerequested_same_sha && $(st "ACT-Training/Zzzt#9" status) == queued ]]'
+sk() { jq -r '[.status, .kind // "-"] | join(" ")'; }
+reset; cp $T/state.json $T/state.before; : > $T/gh-calls.log
+ok "B6: empty / unset / invalid login → error no_login before any classification (full and --dry-run)" '[[ $(PRWATCH_LOGIN= tk $SE | sk) == "error no_login" && $( (unset PRWATCH_LOGIN; tk $SE --dry-run) | sk) == "error no_login" && $(PRWATCH_LOGIN="bad login!" tk $SE | sk) == "error no_login" ]] && cmp -s $T/state.json $T/state.before && [[ ! -e $T/events.jsonl ]] && ! grep -q "pr view" $T/gh-calls.log'
+ok "B6: no login → --window still answers"  '[[ $(PRWATCH_LOGIN= wst $SE) == "in_window -" ]]'
+reset; out=$(PRWATCH_LOGIN= PRWATCH_NOW=$SE pp); rc=$?
+ok "B6: prep without a login → 25 no login, nothing done" '(( rc == 25 )) && [[ $out == "no login" && ! -e $T/archive ]]'
+if [[ -f $L ]]; then
+  launch $(date +%s)
+  ok "B6: launcher writes login into the lock and exports PRWATCH_LOGIN" '[[ $(jq -r .login $T/lock-seen.json) == stubuser ]] && grep -qx "PRWATCH_LOGIN=stubuser" $T/env-seen.txt'
+  launch $(date +%s) PRWATCH_STUB_LOGIN=
+  ok "B6: launcher refuses an empty login: non-zero exit, the harness lock untouched, claude not run, error notice" '(( $(<$T/launch.rc) != 0 )) && [[ $(jq -r .session_id $T/session.lock) == sid-A && ! -e $T/lock-seen.json ]] && grep -q "error launcher" $T/notify.log'
+  launch $(date +%s) "PRWATCH_STUB_LOGIN=bad login!"
+  ok "B6: launcher refuses an invalid login ('bad login!')" '(( $(<$T/launch.rc) != 0 )) && [[ $(jq -r .session_id $T/session.lock) == sid-A && ! -e $T/lock-seen.json ]] && grep -q "error launcher" $T/notify.log'
+  ok "B6: launcher: one informational user/orgs line, no ACT-Training org check" '(( $(grep -c "gh api user/orgs" "$L") == 1 )) && ! grep -q "orgs/ACT-Training" "$L"'
+else print "skip B6 launcher checks (no launcher at $L; set PRWATCH_LAUNCHER)"; fi
+ok "B6: tick query: no --owner, user-review-requested:@me, author in --json" '! grep -q -- "--owner" $B/prwatch-tick.sh && grep -q "user-review-requested:@me" $B/prwatch-tick.sh && grep "gh search prs" $B/prwatch-tick.sh | grep -Eq -- "--json [A-Za-z,]*author"'
+for h in '../x#1' 'a/b;ls#1'; do reset; cp $T/state.json $T/state.before; : > $T/gh-calls.log; j=$(tko "$h" $SE)
+ok "B6: hostile nameWithOwner '$h' → dropped: ok, items empty, no state write, no pr view" '[[ $(jq -c "[.status,.items]" <<<$j) == "[\"ok\",[]]" ]] && cmp -s $T/state.json $T/state.before && ! grep -q "pr view" $T/gh-calls.log'; done
+
+# B12 — first-sighting gate (D16): an unseen repo is new_repo (no fetch, no write) until Jack types allow/block at the prompt
+NL='First PR from Some-Org/Zzzt by someone: type allow Some-Org/Zzzt or block Some-Org/Zzzt'
+reset; cp $T/state.json $T/state.before; : > $T/gh-calls.log; j=$(PRWATCH_ONLY_AUTHOR=someone tko Some-Org/Zzzt#9 $SE)
+ok "B12: unseen repo → new_repo row with the search author, empty sha, no write, no pr view" '[[ $(jq -c ".items[0]|[.key,.reason,.sha,.size,.author]" <<<$j) == "[\"Some-Org/Zzzt#9\",\"new_repo\",\"\",0,\"someone\"]" ]] && cmp -s $T/state.json $T/state.before && ! grep -q "pr view" $T/gh-calls.log'
+ok "B12: the notices line, verbatim, and one question notification" '[[ $(jq -r ".notices[0]" <<<$j) == "$NL" ]] && grep -q " question "Some-Org/Zzzt#9" " $T/notify.log'
+j2=$(PRWATCH_ONLY_AUTHOR=someone tko Some-Org/Zzzt#9 $((SE+900)))
+ok "B12: next tick repeats the notice, notification throttled, still no write" '[[ $(jq -r ".notices[0]" <<<$j2) == "$NL" && $(jq -r ".items[0].reason" <<<$j2) == new_repo ]] && (( $(grep -c " question " $T/notify.log) == 1 )) && cmp -s $T/state.json $T/state.before'
+ok "B12: a notice, never a question: tick JSON and the tick skill's new_repo line carry no AskUserQuestion" '! grep -q AskUserQuestion <<<$j && grep new_repo $S7/prwatch-tick/SKILL.md | grep -q "never \`AskUserQuestion\`"'
+out=$(ph "allow Some-Org/Zzzt")
+ok "B12: ph 'allow Some-Org/Zzzt' → reply line, repos allowed, repo_allow event, request consumed" '[[ $out == "PRWATCH REPO: Some-Org/Zzzt allowed - its pull requests will be picked up at the next check." && $(jq -r ".repos[\"Some-Org/Zzzt\"]" $T/state.json) == allowed && ! -e $T/repo/request.json ]] && jq -e "select(has(\"repo_allow\") and .session==\"sid-A\")" $T/events.jsonl >/dev/null'
+ok "B12: next tick → new, queued write"    '[[ $(tko "Some-Org/Zzzt#9" $((SE+1800)) | jq -r ".items[0].reason") == new && $(st "Some-Org/Zzzt#9" status) == queued ]]'
+out=$(ph "BLOCK Other-Org/Zzzt"); : > $T/gh-calls.log; j=$(PRWATCH_ONLY_AUTHOR=someone tko Other-Org/Zzzt#3 $((SE+1800)))
+ok "B12: ph 'block' (any case) → blocked, repo_block event; its PR → blocked_repo, no write, no pr view" '[[ $out == "PRWATCH REPO: Other-Org/Zzzt blocked - its pull requests are ignored." && $(jq -r ".repos[\"Other-Org/Zzzt\"]" $T/state.json) == blocked ]] && jq -e "select(has(\"repo_block\"))" $T/events.jsonl >/dev/null && [[ $(jq -c ".items[0]|[.reason,.sha,.author]" <<<$j) == "[\"blocked_repo\",\"\",\"someone\"]" && $(st "Other-Org/Zzzt#3" status) == null ]] && ! grep -q "pr view" $T/gh-calls.log'
+reset; out=$($SS repo-allow x/y); rc=$?
+ok "B12: repo-allow with no request → 64, repo_refused event; bad repo → 64" '(( rc == 64 )) && jq -e "select(has(\"repo_refused\"))" $T/events.jsonl >/dev/null && ($SS repo-allow "../x" >/dev/null 2>&1; (( $? == 64 ))) && [[ $(jq ".repos|length" $T/state.json) == 2 ]]'
+for pr in "allow ../x" "allow Some-Org/Zzzt#1" "allow please Some-Org/Zzzt" "allow" "block a/b; ls"; do out=$(ph "$pr"); rc=$?
+ok "B12: ph ignores '$pr'"                  '(( rc == 0 )) && [[ -z $out && ! -e $T/repo && $(jq ".repos|length" $T/state.json) == 2 ]]'; done
+ok "B12: ph 'allow' from a stale window → not changed" '[[ $(PRWATCH_SESSION_ID=sid-B ph "allow Some-Org/X") == "PRWATCH REPO: not changed ("* && $(jq ".repos|length" $T/state.json) == 2 ]]'
+reset; norepos; $SS set ACT-Training/Zzzt#9 queued sha=abc >/dev/null
+ok "B12: a repo with an existing prs key is seen: classified normally, not new_repo" '[[ $(tk $SE | jq -r ".items[0].reason") == new ]]'
 
 # --- installed copy must match the repo (tests run the installed scripts)
 if [[ -d $REPO ]]; then

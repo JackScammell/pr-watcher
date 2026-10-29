@@ -10,7 +10,7 @@ kind=${1:-}; ref=${2:-}
 [[ $ref == [A-Za-z0-9._#/-]## ]] || exit 64
 clean() { print -r -- "$1" | LC_ALL=C tr -cd 'A-Za-z0-9 .,:#()_-' | cut -c1-${2:-60}; }
 rec() { jq -r --arg k "$ref" ".prs[\$k].$1 // \"\"" "$S/state.json" 2>/dev/null; }
-short=${ref#ACT-Training/}
+short=$ref                                         # the full key: the owner matters now that the inbox spans organisations
 case $kind in
   decision) arch=$(rec archive); title=""; [[ -n $arch && -f $arch/input/pr.json ]] && title=$(jq -r '.title // ""' "$arch/input/pr.json" 2>/dev/null)
             sub=$short; snd=Glass

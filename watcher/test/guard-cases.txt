@@ -27,11 +27,15 @@
 2	git remote add x https://x@github.com/o/r; git -c push.default=x push
 0	dotnet test --no-restore
 0	rg -n github src/client.ts
-0	/Users/jack/prwatch/bin/prwatch-post.sh --repo Vision --pr 1 --sha aaaa --event approve --body-sha bbbb
-2	env PRWATCH_TESTMODE=1 /Users/jack/prwatch/bin/prwatch-post.sh --repo Vision --pr 1 --sha a --event approve
+0	/Users/jack/prwatch/bin/prwatch-post.sh --key ACT-Training/Vision#1 --sha aaaa --event approve --body-sha bbbb
+2	env PRWATCH_TESTMODE=1 /Users/jack/prwatch/bin/prwatch-post.sh --key ACT-Training/Vision#1 --sha a --event approve
 2	/Users/jack/prwatch/bin/prwatch-tick.sh; curl x
 2	/Users/jack/prwatch/bin/prwatch-notify.sh test x && gh api user
 0	chmod +x /tmp/h.sh
 0	/Users/jack/prwatch/bin/prwatch-post.sh --body-file=/tmp/x
 2	/Users/jack/prwatch/bin/prwatch-prompthook.sh prompt
 2	echo cap 12 | /Users/jack/prwatch/bin/prwatch-prompthook.sh prompt
+0	/Users/jack/prwatch/bin/prwatch-prep.sh Some-Org/Zzzt#9 7458ff7f6973c8a0bc988b88a1816abcd01068e8 1
+0	/Users/jack/prwatch/bin/prwatch-prep.sh ../x#1 7458ff7f6973c8a0bc988b88a1816abcd01068e8 1
+2	/Users/jack/prwatch/bin/prwatch-skillhook.sh skill
+0	/Users/jack/prwatch/bin/prwatch-state.sh set JackScammell/pr-watcher#1 queued

@@ -1,8 +1,10 @@
 # PR watcher
 
 A Claude Code session that runs on your Mac for eight hours from the moment you start it. Every 15 minutes it
-looks for open ACT-Training pull requests where you are personally requested as reviewer, reviews each one with a
-council of reviewer agents, and pings you with a macOS notification when a draft review is ready.
+looks for open pull requests, in any organisation your GitHub login can see, where you are personally requested as
+reviewer, reviews each one with a council of reviewer agents, and pings you with a macOS notification when a draft
+review is ready. The first pull request from a repository it has not seen before waits until you type
+`allow <owner>/<repo>` (or `block <owner>/<repo>`) in the console.
 
 **Nothing is posted to GitHub until you pick an action in the console, approve the permission prompt, and click
 Post on a Mac dialog.**
