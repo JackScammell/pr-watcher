@@ -19,7 +19,7 @@ mkdir -p $S; F=$S/state.json; [[ -f $F ]] || print '{"prs":{},"go_ahead":{},"rep
 # check: an empty or corrupt state.json is an error (70), never "nothing tracked"
 [[ ${1:-} == check ]] && { jq -e '.prs|type=="object"' $F >/dev/null 2>&1 && exit 0; print "state unreadable"; exit 70; }
 SID=${PRWATCH_SESSION_ID:-}
-[[ -z $SID || $SID == [A-Za-z0-9_-]## ]] || { print "bad session id"; exit 64; }     # it is written into file names and JSON
+session_id_ok "$SID" || { print "bad session id"; exit 64; }     # it is written into file names and JSON
 [[ "$(jq -r .session_id $S/session.lock 2>/dev/null)" == "${SID:-x}" ]] || { print superseded; exit 5; }
 # One writer at a time: fcntl lock; unlock before slow side effects (notify, cleanup) so nothing waits on them.
 # Not taken by subcommands that never write state.json (harness-abort locks only around its final write).

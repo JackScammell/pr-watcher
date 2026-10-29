@@ -15,7 +15,7 @@ fi
 for x in "$@"; do case $x in --dry-run) DRY=1;; --window) WONLY=1;; *) exit 64;; esac; done
 out() { print -r -- "$1"; exit 0; }
 ST=$PRW/bin/prwatch-state.sh; SID=${PRWATCH_SESSION_ID:-}
-[[ -z $SID || $SID == [A-Za-z0-9_-]## ]] || { print "bad session id"; exit 64; }
+session_id_ok "$SID" || { print "bad session id"; exit 64; }
 mkdir -p $S; F=$S/state.json; [[ -f $F ]] || print '{"prs":{},"go_ahead":{},"repos":{}}' > $F
 # 1. lock recreation (full ticks only): a lock without a session_id is rebuilt from the launcher's own lock object,
 #    which must name this session — so started_epoch always comes from what the launcher wrote, never "start now".

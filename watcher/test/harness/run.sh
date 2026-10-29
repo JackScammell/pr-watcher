@@ -72,6 +72,7 @@ m=($T/harness/*.marker); strays=($T/**/x.marker(N) ${T:h}/x.marker(N) ${T:h:h}/x
 ok "hostile agentId → no path escape"      '(( rc == 2 && ${#m} == 1 && ${#strays} == 0 )) && [[ ${m[1]:t} == unknown-*.marker ]]'
 reset; PRWATCH_SESSION_ID= post agent-async.json; rc=$?; sf=($T/stopped-*)
 ok "no session id → still writes a stop file" '(( rc == 2 && ${#sf} == 1 ))'
+ok "no session id → marker is valid JSON with an empty session" '[[ $(jq -r .session $T/harness/*.marker(N) 2>/dev/null) == "" ]] && jq -e . $T/harness/*.marker(N) >/dev/null'
 reset; post taskstop-ok.json; rc=$?
 ok "TaskStop of unmarked agent → silent"   '(( rc == 0 )) && [[ ! -e $T/notify.log ]]'
 
@@ -504,7 +505,7 @@ else print "skip B2.7/B2.8a (no launcher at $L; set PRWATCH_LAUNCHER)"; fi
 outside=$(awk '/PRWATCH_TESTMODE/{b=1} /PRWATCH_TEST_STARTED_EPOCH/ && !b {print NR} /^fi([ \t;]|$)/{b=0}' "$L" 2>/dev/null)
 ok "B2.8b: PRWATCH_TEST_STARTED_EPOCH only inside the launcher's test-mode block" '[[ -z $outside ]] && (( $(grep -c PRWATCH_TEST_STARTED_EPOCH "$L" 2>/dev/null) >= 1 ))'
 ok "B2.8b: no script reads PRWATCH_TEST_STARTED_EPOCH" '! grep -rq PRWATCH_TEST_STARTED_EPOCH $B'
-ok "B2.8b: launcher never reads its own outputs" '! grep -v "^export " "$L" | sed "s/#.*//" | grep -Eq "[^A-Za-z_]PRWATCH_(STARTED_EPOCH|LOCK_JSON)"'
+ok "B2.8b: launcher never reads its own outputs" '! grep -v "^export PRWATCH_STARTED_EPOCH=" "$L" | sed "s/#.*//" | grep -Eq "[^A-Za-z_]PRWATCH_(STARTED_EPOCH|LOCK_JSON)"'
 ok "B2.8b: launcher watchdog and exit path use --window, no clock of their own" '(( $(grep -c "prwatch-tick.sh\" --window\|prwatch-tick.sh --window" "$L") >= 2 )) && ! grep -Eq "date \+%u|date \+%H%M|10#\\\$hm" "$L"'
 
 # B8 — scheduling gate: one job, one string

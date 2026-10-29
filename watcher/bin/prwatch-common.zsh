@@ -23,6 +23,8 @@ now_epoch() {
 started_epoch() { local v; v=$(/usr/bin/jq -r '.started_epoch // ""' $1/session.lock 2>/dev/null) || return 1
   [[ $v == [0-9]## ]] || return 1; print -r -- $v; }
 # hhmm <epoch> — for humans: HH:MM, plus "tomorrow" / "yesterday" / "on <date>" when it is not the current day
+# session_id_ok <sid> — empty, or [A-Za-z0-9_-]+ : it is written into file names and JSON, so nothing else is accepted
+session_id_ok() { [[ -z $1 || $1 == [A-Za-z0-9_-]## ]] }
 hhmm() { local t d n nd; t=$(date -r $1 +%H:%M); d=$(date -r $1 +%F); n=$(now_epoch) || n=$(date +%s); nd=$(date -r $n +%F)
   if   [[ $d == $nd ]];                          then print -r -- $t
   elif [[ $d == $(date -r $((n+86400)) +%F) ]]; then print -r -- "$t tomorrow"

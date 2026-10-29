@@ -45,10 +45,10 @@ case ${1:-} in
           [[ $st == async_launched || $as == true ]] || log "unknown Agent status '${st[1,40]}' treated as a fault"
           id=$(j '.tool_response.agentId // ""'); [[ $id == [A-Za-z0-9_-](#c1,64) ]] || id=unknown-$(date +%s)
           # one PR at a time (CLAUDE.md invariant 7), so this session owns at most one reviewing item
-          key=$(/usr/bin/jq -r --arg s $SID '[.prs|to_entries[]|select(.value.status=="reviewing" and .value.owner==$s)|.key][0] // "none"' $S/state.json 2>/dev/null)
+          key=$(/usr/bin/jq -r --arg s "$SID" '[.prs|to_entries[]|select(.value.status=="reviewing" and .value.owner==$s)|.key][0] // "none"' $S/state.json 2>/dev/null)
           [[ $key == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## ]] || key=none
           mkdir -p $H; ext=marker; [[ -f $H/$id.ended ]] && { ext=stopped; rm -f $H/$id.ended; }   # it already finished
-          /usr/bin/jq -n --arg s $SID --arg k $key --arg a $id --arg t "$(date -Iseconds)" \
+          /usr/bin/jq -n --arg s "$SID" --arg k "$key" --arg a "$id" --arg t "$(date -Iseconds)" \
             '{session:$s,key:$k,agent:$a,t:$t}' > $H/$id.$ext
           touch $S/stopped-$SID; log "fault agent=$id key=$key"
           if [[ $key == none ]]; then next="report PROBLEM (this is the start-up probe). "
