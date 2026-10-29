@@ -31,10 +31,15 @@ see `watcher/README.md`), unlock it first; `install.sh` refuses while it is lock
 | `watcher/BUILD-NOTES.md` | Deviations from the plan found while building, with evidence |
 | `docs/plan.md` | The council-approved plan (Revision 3.1) this was built from |
 | `docs/fix-background-agents.md` | The 2026-09-29 background-reviewer incident: cause, fix, safety net, verification |
-| `docs/cap-override.md` | `cap N`: raising the daily review cap for one day, and how the scripts enforce it |
+| `docs/plan-v2.md` | The council-approved v2 plan: review engine, cross-org inbox, 8-hour window, repo files |
+| `docs/history/cap-override.md` | `cap N`: raising the daily review cap for one day, and how the scripts enforce it (superseded; kept for the record) |
 | `docs/windows-port.md` | The council-approved plan for running the watcher on Windows (WSL2), from this same repo |
 | `docs/windows-wsl.md` | Installing WSL2 and the `PRWatcher` distro on Windows (install chapter; the rest comes with the port) |
 | `watcher/test/harness/` | `run.sh` (offline safety-net tests) and `live-check.sh` (real Claude Code check after updates) |
+| `CONTRIBUTING.md` | Where things live, the edit-install-test-lock loop, and the PR rules |
+| `SECURITY.md` | What counts as a vulnerability, how to report one, and what the watcher does and does not do |
+| `CHANGELOG.md` | What changed in each release |
+| `.github/` | Issue and PR templates, Dependabot, and the `check` workflow |
 
 The runtime files live under `watcher/` so the watcher's own `CLAUDE.md` and skills don't load when you open
 Claude Code in this repo to work on it.

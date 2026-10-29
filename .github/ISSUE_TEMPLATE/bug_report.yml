@@ -1,0 +1,64 @@
+name: Bug report
+description: Something the watcher did, or failed to do, that it should not have.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Plain English is fine. Never paste PR content, credentials or review text. If this is a security problem, read SECURITY.md first.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what the watcher did instead.
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Watcher commit, and whether install.sh was re-run afterwards
+      description: "`git rev-parse --short HEAD` in the repo, then `yes` or `no` for install.sh."
+      placeholder: "abc1234, install.sh re-run: yes"
+    validations:
+      required: true
+  - type: input
+    id: claude-version
+    attributes:
+      label: claude --version
+    validations:
+      required: true
+  - type: input
+    id: harness
+    attributes:
+      label: Result of ~/prwatch/test/harness/run.sh
+      description: The last line it printed.
+      placeholder: "285/285 passed"
+    validations:
+      required: true
+  - type: input
+    id: live-check
+    attributes:
+      label: live-check.sh result, if a Claude Code update is involved
+      description: Leave blank if Claude Code was not updated.
+    validations:
+      required: false
+  - type: textarea
+    id: state-entry
+    attributes:
+      label: The state/ entry for the PR
+      description: Key and status only, for example `ACT-Training/Vision#1803 awaiting_decision`. Nothing else from the file.
+    validations:
+      required: false
+  - type: input
+    id: notification
+    attributes:
+      label: Notification text, if any
+    validations:
+      required: false
+  - type: checkboxes
+    id: no-pr-content
+    attributes:
+      label: Confirmation
+      options:
+        - label: No PR content, credentials or review text pasted above
+          required: true

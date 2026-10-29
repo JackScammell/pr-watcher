@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/JackScammell/pr-watcher/blob/main/SECURITY.md
+    about: Read SECURITY.md before opening an issue. Never paste PR content or credentials.

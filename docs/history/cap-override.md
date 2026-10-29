@@ -1,3 +1,6 @@
+> Superseded: the daily cap is removed by docs/plan-v2.md (D17). Kept for the record;
+> the "How it's enforced" section is still linked by name from docs/fix-background-agents.md.
+
 # Raising the daily review cap for one day (`cap N`, 2026-09-30)
 
 Jack can type `cap 8` in the watcher window to allow up to 8 councils today instead of the usual 6. The next day it

@@ -1,5 +1,7 @@
 # PR watcher on Windows (WSL2): install
 
+> Note (2026-10-29): the Mac side is changing under docs/plan-v2.md, and the port plan (docs/windows-port.md) will need re-basing before the rest of this guide is written. This install chapter is kept unchanged.
+
 Status: 2026-10-01. **Install chapter only: written before Phase 0, nothing in it has been run on Windows yet.**
 It is written for Jack's laptop: admin rights, Linux username `jackscammell`, Docker Desktop not installed. Nothing
 here touches the Mac install, which stays in use in the office. Run one watcher per day: the Mac in the office, this

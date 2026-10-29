@@ -1,0 +1,48 @@
+name: Feature request
+description: A change to what the watcher does.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem before the solution. Never paste PR content, credentials or review text.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is wrong or missing today, and who it affects.
+    validations:
+      required: true
+  - type: dropdown
+    id: invariant
+    attributes:
+      label: Which invariant it touches
+      description: See the invariants in watcher/CLAUDE.md.
+      options:
+        - none
+        - posting
+        - GitHub access
+        - sandbox
+        - foreground reviewers
+        - scheduling
+    validations:
+      required: true
+  - type: textarea
+    id: behaviour
+    attributes:
+      label: Proposed behaviour
+      description: What the watcher should do instead, in plain English.
+    validations:
+      required: true
+  - type: dropdown
+    id: model-or-script
+    attributes:
+      label: Does it change what the model is told, or what a script enforces?
+      description: Scripts decide, the model obeys. A prose-only change is not enforcement.
+      options:
+        - what the model is told
+        - what a script enforces
+        - both
+        - neither
+    validations:
+      required: true
