@@ -20,19 +20,21 @@ These do not count:
 
 - A wrong review. That is a quality problem, not a security one.
 - A test the sandbox cannot run.
-- The accepted risks listed in `docs/plan-v2.md` §8 ("Risks and accepted risks"), AR-1 to AR-10.
+- The accepted risks listed in `docs/plan-v2.md` §8 ("Risks and accepted risks"), AR-1 to AR-10. There is no AR-4.
 
 ## How to report
 
 This repository is private at the time of writing, so GitHub's "Report a vulnerability" button is not available
 (GitHub offers private vulnerability reporting on public repositories only). Use one of these instead:
 
-1. Open an issue in this repository.
-2. Email the address on the maintainer's GitHub profile: https://github.com/JackScammell.
+1. Email the address on [the maintainer's GitHub profile](https://github.com/JackScammell). Use this for anything
+   that could be exploited.
+2. Open an issue in this repository, using the bug report form, only for a report with no exploit detail in it.
+   The repository is private, so an issue is seen only by its collaborators, but it is still not a private channel.
 
 Include:
 
-- the watcher commit you are running (`git -C ~/Documents/GitHub/pr-watcher rev-parse HEAD`) and whether
+- the watcher commit you are running (`git rev-parse HEAD` in your checkout of this repository) and whether
   `install.sh` has been re-run since;
 - `claude --version`;
 - the `state/` entry for the PR concerned: its key and status only.
@@ -54,7 +56,10 @@ the repo's `watcher/` directory.
 - The model never calls `gh`. All GitHub reads and the single write (`prwatch-post.sh`) live in `watcher/bin/*.sh`.
 - Reviewers run in the foreground only. A reviewer found running in the background is treated as a harness fault
   and the review is abandoned (see `docs/fix-background-agents.md`).
-- `state/` is written only by `prwatch-state.sh`, the launcher (`session.lock`), the hooks' `harness/` markers and
-  the prompt hook's one-use request files.
-- Hooks run with the user's permissions and only run scripts in this repository.
-- Nothing is downloaded or executed from elsewhere.
+- `state/` is written only by the watcher's own scripts and hooks: `prwatch-state.sh` for `state.json` and the
+  events log, the launcher for `session.lock`, the hooks for the `harness/` markers and the heartbeat file
+  (`state/activity`), the prompt hook for its one-use request files, and `prwatch-notify.sh` for its throttle
+  markers and `notify.log`. The model has no write access to `state/`.
+- Hooks run with the user's permissions and run only scripts in this repository and `/usr/bin/touch`.
+- The watcher never updates itself and never fetches hook or reviewer code from elsewhere. A PR's own test run
+  does restore packages inside the sandbox; that is accepted risk AR-5 in `docs/plan-v2.md`.

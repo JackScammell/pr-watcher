@@ -17,14 +17,16 @@ body:
     id: invariant
     attributes:
       label: Which invariant it touches
-      description: See the invariants in watcher/CLAUDE.md.
+      description: The seven numbered invariants in watcher/CLAUDE.md.
       options:
         - none
-        - posting
-        - GitHub access
-        - sandbox
-        - foreground reviewers
-        - scheduling
+        - 1 Posting
+        - 2 GitHub
+        - 3 Watcher scripts (canonical call)
+        - 4 Foreground only
+        - 5 Untrusted data
+        - 6 Blocks
+        - 7 One PR at a time
     validations:
       required: true
   - type: textarea

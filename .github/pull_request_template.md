@@ -8,7 +8,7 @@
 
 ## Testing performed
 
-<!-- `~/prwatch/test/harness/run.sh` result (e.g. 285/285 passed).
+<!-- `~/prwatch/test/harness/run.sh` result (the last line, `N/N passed`).
      `live-check.sh` result if hooks or the harness surface changed.
      Which day-1 T-tests (watcher/README.md) were re-run.
      Mutation results, if any. -->

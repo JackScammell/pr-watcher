@@ -1,6 +1,7 @@
 # Contributing
 
-This is a small macOS-only zsh tool with one maintainer. The rules below exist because anything the watcher posts
+This is a small zsh tool with one maintainer. It runs on macOS today; a Windows port is planned in
+`docs/windows-port.md`. The rules below exist because anything the watcher posts
 goes out under the user's own GitHub identity, so a careless change has real consequences. Read `SECURITY.md`
 and the "This Project" paragraph in `CODE_OF_CONDUCT.md` first.
 

@@ -23,9 +23,11 @@ on:
 permissions:
   contents: read
 
+# Superseded pushes to a PR branch cancel the earlier run. Pushes to main never cancel each other,
+# so every main commit gets a completed check.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   syntax:
@@ -66,8 +68,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The guard and settings.json name /Users/jack/prwatch literally (D24).
+      # Empty ~/.ssh and ~/.config/gh exist so the harness's "credentials unreadable"
+      # checks test the sandbox profile, not the absence of a directory.
       - name: Create /Users/jack as the test HOME
-        run: sudo mkdir -p /Users/jack/Desktop && sudo chown -R "$(id -un)" /Users/jack
+        run: |
+          sudo mkdir -p /Users/jack/Desktop /Users/jack/.ssh /Users/jack/.config/gh
+          sudo chown -R "$(id -un)" /Users/jack
 
       - name: Install the watcher into /Users/jack/prwatch
         run: HOME=/Users/jack ./install.sh
@@ -81,27 +87,33 @@ jobs:
           PRWATCH_LAUNCHER: ${{ github.workspace }}/launcher/PR Watcher.command
         run: /Users/jack/prwatch/test/harness/run.sh </dev/null
 
-      - name: Classification table (sim2) prints exactly 20 lines
+      # The installed copy, like run.sh. The expected table is committed; a changed
+      # classification, not just a changed line count, fails the step.
+      - name: Classification table (sim2) matches expected.txt
         shell: zsh {0}
         env:
           HOME: /Users/jack
         run: |
-          cd watcher/test/sim2 && zsh tick-sim2.sh </dev/null | tee /tmp/sim2.out
-          [ "$(wc -l < /tmp/sim2.out)" -eq 20 ]
+          set -e
+          cd /Users/jack/prwatch/test/sim2
+          zsh tick-sim2.sh </dev/null > /tmp/sim2.out
+          diff expected.txt /tmp/sim2.out
 
       # Mirrors the T5 command in watcher/README.md. Each line is <expected-exit><TAB><command>.
-      - name: Guard cases (both case files, which must be identical)
+      # The two case files must be identical; the cmp is the gate, so only one file is then run.
+      - name: Guard cases
         shell: zsh {0}
         env:
           HOME: /Users/jack
         run: |
+          set -e
           cmp watcher/test/guard-cases.txt watcher/test/sec/guard-cases.tsv
+          cases=watcher/test/guard-cases.txt
+          (( $(wc -l < $cases) >= 30 )) || { print "too few guard cases in $cases"; exit 1; }
           bad=0
-          for cases in watcher/test/guard-cases.txt watcher/test/sec/guard-cases.tsv; do
-            while IFS=$'\t' read -r want c; do
-              jq -nc --arg c "$c" '{tool_input:{command:$c}}' | /Users/jack/prwatch/bin/prwatch-guard.sh >/dev/null 2>&1; got=$?
-              if [[ $got != $want ]]; then print "MISMATCH ($got != $want): $c"; bad=1; fi
-            done < "$cases"
-          done
+          while IFS=$'\t' read -r want c || [[ -n $want ]]; do
+            jq -nc --arg c "$c" '{tool_input:{command:$c}}' | /Users/jack/prwatch/bin/prwatch-guard.sh >/dev/null 2>&1 && got=0 || got=$?
+            if [[ $got != $want ]]; then print "MISMATCH ($got != $want): $c"; bad=1; fi
+          done < $cases
           print done
           exit $bad

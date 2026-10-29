@@ -17,22 +17,23 @@ body:
     id: commit
     attributes:
       label: Watcher commit, and whether install.sh was re-run afterwards
-      description: "`git rev-parse --short HEAD` in the repo, then `yes` or `no` for install.sh."
+      description: "The short commit from `git rev-parse --short HEAD` in the repo, a comma, then `install.sh re-run: yes` or `no`."
       placeholder: "abc1234, install.sh re-run: yes"
     validations:
       required: true
   - type: input
     id: claude-version
     attributes:
-      label: claude --version
+      label: Claude Code version
+      description: "The output of `claude --version`."
     validations:
       required: true
   - type: input
     id: harness
     attributes:
-      label: Result of ~/prwatch/test/harness/run.sh
-      description: The last line it printed.
-      placeholder: "285/285 passed"
+      label: Offline harness result
+      description: "The last line printed by `~/prwatch/test/harness/run.sh`."
+      placeholder: "N/N passed"
     validations:
       required: true
   - type: input
@@ -52,13 +53,14 @@ body:
   - type: input
     id: notification
     attributes:
-      label: Notification text, if any
+      label: Notification, if any
+      description: Its kind and PR key only, for example `decision ACT-Training/Vision#1803`. Leave out the PR title; the watcher puts it in the notification.
     validations:
       required: false
   - type: checkboxes
     id: no-pr-content
     attributes:
-      label: Confirmation
+      label: Confirmation that no private content is pasted above
       options:
         - label: No PR content, credentials or review text pasted above
           required: true

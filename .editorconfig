@@ -10,3 +10,12 @@ trim_trailing_whitespace = true
 
 [*.md]
 trim_trailing_whitespace = false
+
+# Test inputs are byte-sensitive (fixture logs, tab-separated guard cases): never reformat them.
+[watcher/test/**]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+[*.tsv]
+trim_trailing_whitespace = false
+insert_final_newline = false
