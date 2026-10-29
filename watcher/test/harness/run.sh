@@ -314,7 +314,7 @@ ok "tick skill: stop after harness fault"  'grep -q "harness fault" $S7/prwatch-
 ok "hand-back named in start/review/CLAUDE" 'grep -q "Subagent hand-back" $S7/prwatch-start/SKILL.md && grep -q "Subagent hand-back" $S7/prwatch-review/SKILL.md && grep -q "Subagent hand-back" $PRW/CLAUDE.md'
 ok "hand-back never a decision (inv. 1 + decide)" 'grep -q "hand-back" <(sed -n "/^1\. \*\*Posting/p" $PRW/CLAUDE.md) && grep -q "hand-back" $S7/prwatch-decide/SKILL.md'
 
-# --- daily cap (docs/cap-override.md): Jack's "cap N" via the prompt hook only; prep's daily-inc enforces it; tick reports it
+# --- daily cap (docs/history/cap-override.md): Jack's "cap N" via the prompt hook only; prep's daily-inc enforces it; tick reports it
 PH=$B/prwatch-prompthook.sh; WD=2026-09-29                                  # WD: a weekday, for tick's window
 ph()   { jq -nc --arg p "$1" '{hook_event_name:"UserPromptSubmit",session_id:"cc-1",prompt:$p}' | $PH prompt 2>&1; }
 ovr()  { jq -r ".cap_override[\"${1:-$today}\"] // \"none\"" $T/state.json; }
@@ -473,7 +473,7 @@ ok "status and eod use state.sh today"      'grep -q "prwatch-state.sh today" $P
 ok "CLAUDE.md: cap N row, model never runs cap" 'grep -q "^| .cap N. |" $PRW/CLAUDE.md && grep -q "PRWATCH CAP:" $PRW/CLAUDE.md && grep -q "prwatch-state.sh cap. yourself" $PRW/CLAUDE.md'
 
 # --- installed copy must match the repo (tests run the installed scripts)
-REPO=${PRWATCH_REPO:-/Users/jack/Herd/Shuffle/pr-watcher/watcher}
+REPO=${PRWATCH_REPO:-$HOME/Documents/GitHub/pr-watcher/watcher}
 if [[ -d $REPO ]]; then
   drift=$(cd $REPO && for f in bin/*.sh shims/* config/settings.json CLAUDE.md BUILD-NOTES.md angles/*.md .claude/skills/*/SKILL.md test/harness/*.sh; do cmp -s $f $PRW/$f || print $f; done)
   ok "installed copy matches repo"         '[[ -z $drift ]]'; [[ -n $drift ]] && print "  drift: ${(f)drift}"

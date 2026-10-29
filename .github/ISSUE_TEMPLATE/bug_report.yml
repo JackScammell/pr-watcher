@@ -1,0 +1,66 @@
+name: Bug report
+description: Something the watcher did, or failed to do, that it should not have.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Plain English is fine. Never paste PR content, credentials or review text. If this is a security problem, read SECURITY.md first.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what the watcher did instead.
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Watcher commit, and whether install.sh was re-run afterwards
+      description: "The short commit from `git rev-parse --short HEAD` in the repo, a comma, then `install.sh re-run: yes` or `no`."
+      placeholder: "abc1234, install.sh re-run: yes"
+    validations:
+      required: true
+  - type: input
+    id: claude-version
+    attributes:
+      label: Claude Code version
+      description: "The output of `claude --version`."
+    validations:
+      required: true
+  - type: input
+    id: harness
+    attributes:
+      label: Offline harness result
+      description: "The last line printed by `~/prwatch/test/harness/run.sh`."
+      placeholder: "N/N passed"
+    validations:
+      required: true
+  - type: input
+    id: live-check
+    attributes:
+      label: live-check.sh result, if a Claude Code update is involved
+      description: Leave blank if Claude Code was not updated.
+    validations:
+      required: false
+  - type: textarea
+    id: state-entry
+    attributes:
+      label: The state/ entry for the PR
+      description: Key and status only, for example `ACT-Training/Vision#1803 awaiting_decision`. Nothing else from the file.
+    validations:
+      required: false
+  - type: input
+    id: notification
+    attributes:
+      label: Notification, if any
+      description: Its kind and PR key only, for example `decision ACT-Training/Vision#1803`. Leave out the PR title; the watcher puts it in the notification.
+    validations:
+      required: false
+  - type: checkboxes
+    id: no-pr-content
+    attributes:
+      label: Confirmation that no private content is pasted above
+      options:
+        - label: No PR content, credentials or review text pasted above
+          required: true

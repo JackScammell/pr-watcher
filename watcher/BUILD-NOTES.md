@@ -1,5 +1,7 @@
 # Build notes: PR watcher (built 2026-09-29 from plan Revision 3.1)
 
+> Note (2026-10-29): docs/plan-v2.md supersedes the parts of these notes that describe the daily cap and its override, the 08:00–16:00 weekday window, the ACT-Training-only inbox and the review council dispatch, as its four PRs land. Kept unchanged otherwise.
+
 Source of truth: `/Users/jack/Documents/pr-review-watcher-plan/plans/plan.md`, Appendix A.1–A.10. The appendix blocks were extracted mechanically, then diffed against the executed harness copies:
 - `r31test/home/prwatch/bin` for tick, state and notify;
 - `r3test/` for post, prep, cleanup and guard;
@@ -104,7 +106,7 @@ This is the single list of what the testing-build reviewer can and can't do insi
   Result on #1742: 3749/3749 SUCCESS in 26 s.
 - **Real local services.** Test projects that would connect to a real local DB, Redis or queue aren't run (Jack's decision). In-memory databases and WebApplicationFactory are fine.
 
-## Daily cap override (2026-09-30; docs/cap-override.md)
+## Daily cap override (2026-09-30; docs/history/cap-override.md)
 - Jack types `cap N` (1–12) to change today's council cap; it lapses overnight. Only `bin/prwatch-prompthook.sh` (UserPromptSubmit) can set it: it writes `state/cap/request.json` and calls `prwatch-state.sh cap N`, which refuses without that fresh request. Like the agenthook markers, the request is written by harness-run code, never the model.
 - `prwatch-prep.sh` now takes the day's slot (`daily-inc`, exit 65 → prep exit 24) before anything else; the review skill no longer calls `daily-inc`, so a council the skill starts is always counted. Exit codes: see the table in the doc.
 - A PreToolUse hook on scheduling tools (`.*(Cron|Schedule|Wakeup|Trigger).*`) allows only the `/prwatch-tick` and `/prwatch-eod` CronCreate jobs plus CronList/CronDelete, and `ScheduleWakeup` is denied, so a scheduled prompt can't pose as Jack.

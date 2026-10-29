@@ -1,3 +1,7 @@
+> Superseded by docs/plan-v2.md (D17), which removes the daily cap in its PR 2. Until that lands this is still
+> the live specification and the harness still asserts it. Kept for the record afterwards; the "How it's enforced"
+> section is linked by name from docs/fix-background-agents.md.
+
 # Raising the daily review cap for one day (`cap N`, 2026-09-30)
 
 Jack can type `cap 8` in the watcher window to allow up to 8 councils today instead of the usual 6. The next day it

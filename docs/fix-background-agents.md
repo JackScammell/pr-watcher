@@ -104,7 +104,7 @@ Each of these leaves the day stopped, and the next session ignores the old marke
 - **Self-DoS.** A PR-steered reviewer can't forge a fault. It can only end the day if Claude Code itself reports a
   non-`completed` Agent status, and that costs no slot or attempt. The one exception is when `harness-abort`'s
   final state write fails (exit 70). Then the slot isn't refunded, and the next day's `orphaned_requeue` charges
-  an attempt (see `docs/cap-override.md`, "How it's enforced", point 5).
+  an attempt (see `docs/history/cap-override.md`, "How it's enforced", point 5).
 - **One reviewing item.** The hook's key lookup takes the single item this session is reviewing, which relies on
   invariant 7 (one PR at a time).
 

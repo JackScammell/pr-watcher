@@ -11,3 +11,7 @@ watcher/test/stub/*.log
 watcher/.claude/scheduled_tasks.lock
 *.lock
 .DS_Store
+
+# Claude Code per-repo runtime data (agent worktrees, agent memory)
+.claude/worktrees/
+.claude/agent-memory/

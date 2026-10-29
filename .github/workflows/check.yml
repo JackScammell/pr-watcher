@@ -1,0 +1,131 @@
+# PR watcher checks (plan D24).
+#
+# Two jobs:
+#   syntax  - Linux. `zsh -n` on every script and `jq empty` on every JSON file.
+#             This catches unbalanced quotes and bad JSON, not logic.
+#   harness - macOS. Installs the watcher into /Users/jack/prwatch and runs the
+#             offline harness, the sim2 classification table and the guard cases.
+#
+# The guard regex and config/settings.json contain the literal path
+# /Users/jack/prwatch by design, so the harness job creates that HOME on the
+# runner. A `sed` under CI would test a different artefact from the one Jack runs.
+#
+# live-check.sh never runs in CI: it needs a real Claude Code login.
+# No secrets are used anywhere in this workflow.
+
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Superseded pushes to a PR branch cancel the earlier run. Pushes to main never cancel each other,
+# so every main commit gets a completed check.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install zsh
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh
+
+      # Syntax only: unbalanced quotes, a missing `fi` or `done`, bad JSON. Not logic.
+      - name: zsh -n on every script
+        shell: bash
+        run: |
+          set -u
+          bad=0
+          for f in install.sh 'launcher/PR Watcher.command' watcher/bin/*.sh watcher/shims/* \
+                   watcher/test/harness/*.sh watcher/test/sim2/*.sh watcher/test/stub/osascript; do
+            if zsh -n "$f"; then echo "ok   $f"; else echo "BAD  $f"; bad=1; fi
+          done
+          exit $bad
+
+      - name: jq empty on every JSON file
+        shell: bash
+        run: |
+          set -u
+          bad=0
+          for f in watcher/config/settings.json watcher/test/sim2/*.json watcher/test/harness/fixtures/*.json; do
+            if jq empty "$f"; then echo "ok   $f"; else echo "BAD  $f"; bad=1; fi
+          done
+          exit $bad
+
+  harness:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The guard and settings.json name /Users/jack/prwatch literally (D24).
+      # Empty ~/.ssh and ~/.config/gh exist so the harness's "credentials unreadable"
+      # checks test the sandbox profile, not the absence of a directory.
+      #
+      # prwatch-ngtest.sh and prwatch-dotnettest.sh refuse to start unless node (Herd's
+      # nvm), chrome-headless-shell (puppeteer) and dotnet are installed. In harness test
+      # mode none of them is ever executed: a fake shell command stands in for Karma and
+      # `dotnet test`. Empty placeholders at those paths let the profile, verdict and
+      # run tests exercise the real script logic on a runner that has no toolchain.
+      - name: Create /Users/jack as the test HOME
+        run: |
+          sudo mkdir -p /Users/jack/Desktop /Users/jack/.ssh /Users/jack/.config/gh
+          sudo mkdir -p "/Users/jack/Library/Application Support/Herd/config/nvm/versions/node/v0.0.0-placeholder/bin"
+          hs=/Users/jack/.cache/puppeteer/chrome-headless-shell/mac-0/chrome-headless-shell-mac-placeholder
+          sudo mkdir -p "$hs" && sudo touch "$hs/chrome-headless-shell" && sudo chmod +x "$hs/chrome-headless-shell"
+          sudo chown -R "$(id -un)" /Users/jack
+          if [ ! -x /usr/local/share/dotnet/dotnet ]; then
+            sudo mkdir -p /usr/local/share/dotnet && sudo touch /usr/local/share/dotnet/dotnet && sudo chmod +x /usr/local/share/dotnet/dotnet
+          fi
+
+      - name: Install the watcher into /Users/jack/prwatch
+        run: HOME=/Users/jack ./install.sh
+
+      # run.sh tests the INSTALLED copy and needs macOS (sandbox-exec, lsof, zsh flock).
+      - name: Offline harness (run.sh)
+        shell: zsh {0}
+        env:
+          HOME: /Users/jack
+          PRWATCH_REPO: ${{ github.workspace }}/watcher
+          PRWATCH_LAUNCHER: ${{ github.workspace }}/launcher/PR Watcher.command
+        run: /Users/jack/prwatch/test/harness/run.sh </dev/null
+
+      # The installed copy, like run.sh. The expected table is committed; a changed
+      # classification, not just a changed line count, fails the step.
+      - name: Classification table (sim2) matches expected.txt
+        shell: zsh {0}
+        env:
+          HOME: /Users/jack
+        run: |
+          set -e
+          cd /Users/jack/prwatch/test/sim2
+          zsh tick-sim2.sh </dev/null > /tmp/sim2.out
+          diff expected.txt /tmp/sim2.out
+
+      # Mirrors the T5 command in watcher/README.md. Each line is <expected-exit><TAB><command>.
+      # The two case files must be identical; the cmp is the gate, so only one file is then run.
+      - name: Guard cases
+        shell: zsh {0}
+        env:
+          HOME: /Users/jack
+        run: |
+          set -e
+          cmp watcher/test/guard-cases.txt watcher/test/sec/guard-cases.tsv
+          cases=watcher/test/guard-cases.txt
+          (( $(wc -l < $cases) >= 30 )) || { print "too few guard cases in $cases"; exit 1; }
+          bad=0
+          while IFS=$'\t' read -r want c || [[ -n $want ]]; do
+            jq -nc --arg c "$c" '{tool_input:{command:$c}}' | /Users/jack/prwatch/bin/prwatch-guard.sh >/dev/null 2>&1 && got=0 || got=$?
+            if [[ $got != $want ]]; then print "MISMATCH ($got != $want): $c"; bad=1; fi
+          done < $cases
+          print done
+          exit $bad

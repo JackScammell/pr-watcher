@@ -1,0 +1,7 @@
+# Keeps the pinned actions/checkout SHA in .github/workflows/check.yml current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

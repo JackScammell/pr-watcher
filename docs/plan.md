@@ -1,5 +1,7 @@
 # PR review watcher — implementation plan
 
+> Note (2026-10-29): docs/plan-v2.md supersedes the parts of this document that describe the daily cap, the 08:00–16:00 weekday window, the ACT-Training-only inbox and the review council dispatch, as its four PRs land. Kept unchanged otherwise.
+
 **Revision 3.1 — council round 3 (converged)** · Planner · 2026-09-28
 Earlier revisions are kept at `plans/plan-r1.md`, `plans/plan-r2.md` and `plans/plan-r3.md`. All four council reviewers approved Revision 3 with nits; this revision applies those nits and changes nothing else.
 
@@ -192,7 +194,7 @@ No reviewer raised a new should-fix in round 3. All their nits are applied in Re
 - REL-N4 **Adopted.** Prep falls back to "full review" when the old SHA isn't an ancestor or can't be fetched.
 - REL-N5 **Adopted.** The launcher runs `gh api orgs/ACT-Training` and fails loudly.
 - REL-N6 **Adopted.** State holds `archive`, `step` and `owner_pid`.
-- REL-N7 **Adopted.** The cap is keyed by date. Capped items stay `queued` and there's one "cap reached" notice. The default is 6 (council cost note). *(2026-09-30: Jack can change it for one day with `cap N`, 1–12; prep now enforces it. See `docs/cap-override.md`.)*
+- REL-N7 **Adopted.** The cap is keyed by date. Capped items stay `queued` and there's one "cap reached" notice. The default is 6 (council cost note). *(2026-09-30: Jack can change it for one day with `cap N`, 1–12; prep now enforces it. See `docs/history/cap-override.md`.)*
 - REL-N8 **Adopted, via the watchdog.** A fresh session daily also makes 7-day expiry moot.
 - REL-N9 **Adopted** (CLAUDE.md rule).
 
@@ -436,7 +438,7 @@ As before. End of day runs between 16:03 and about 16:35 (daily jitter up to 30 
 | + | new/updated/retry/orphaned/stale with size > 3000 and no go-ahead for this SHA | `needs_go_ahead` → `go_ahead_pending` (silent; the question ping fires when §5.3 asks it) |
 
 6. **Withdrawn pass** (implemented): tracked keys in `queued/ready/asking/awaiting_decision/go_ahead_pending/reviewing/failed` that are missing from the search on **two consecutive ticks** → `withdrawn` (with `withdrawn_from=<previous status>`), with one notice each. The first miss only records `miss=1`, and being seen again resets it to 0. An empty or partial search result therefore withdraws nothing. A real withdrawal is noticed one tick (about 15 minutes) later. Skipped in `ONLY` and dry-run modes.
-7. **Cap** 6 a day (re-reviews count). *(2026-09-30: `cap N` for one day; see `docs/cap-override.md`.)*
+7. **Cap** 6 a day (re-reviews count). *(2026-09-30: `cap N` for one day; see `docs/history/cap-override.md`.)*
 
 ### 5.3 `/prwatch-tick` skill
 As in Revision 2, plus two Revision 3.1 rules:

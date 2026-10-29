@@ -1,5 +1,7 @@
 # Windows port of pr-watcher (WSL2)
 
+> Note (2026-10-29): docs/plan-v2.md changes the Mac side this plan ports (the daily cap, the 08:00–16:00 weekday window, the ACT-Training-only inbox and the review council dispatch), so this plan will need re-basing once its four PRs land. Kept unchanged otherwise.
+
 Status: r14, council-approved (2026-10-01). Plan only; no code has been changed. The install chapter of the
 Windows guide, `docs/windows-wsl.md`, has existed since r6 (S0 below).
 
@@ -1410,7 +1412,7 @@ performance APPROVE-WITH-NOTES)**
 reviewed)**
 
 - The plan moved from `.project-files/plans/windows-port-wsl2.md` to `docs/windows-port.md`, next to the other
-  council plans (`docs/plan.md`, `docs/cap-override.md`).
+  council plans (`docs/plan.md`, `docs/history/cap-override.md`).
 - **S0** added: the install chapter of `docs/windows-wsl.md` is written before Phase 0, and S1/S2 are run by
   following it. Before r6, the guide was only written in Phase 6, after Jack would already have installed WSL
   without it.
