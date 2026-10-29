@@ -41,7 +41,7 @@ Reviewers suggest: <RECOMMENDATION IN CAPS>
 - `run probe <id>` → `/Users/jack/prwatch/bin/prwatch-buildrun.sh <key> dotnet-probe|ng-probe <id>` (same timeout), then as above.
 - `later` → `set <key> awaiting_decision`, stop.
 - `re-review` → `set <key> queued sha=<sha>`, stop.
-- `stop` / `pause N` → as in CLAUDE.md.
+- `stop` / `pause N` typed here as free text → not a command (only a prompt that is exactly `stop` or `pause N` on its own reaches the hook): `set <key> awaiting_decision`, stop asking, print "type `stop` (or `pause N`) at the prompt on its own".
 
 ## 5. An event was chosen
 1. **Q2 in a separate `AskUserQuestion` call** (only if `A/draft/technical-detail.md` exists): "Also post the Technical detail comment?" **Yes** / **No**. Always ask; never assume. Timeout → treat as no decision at all: `set <key> awaiting_decision`, stop.

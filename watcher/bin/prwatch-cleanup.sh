@@ -1,12 +1,14 @@
 #!/bin/zsh
-# prwatch-cleanup.sh <key> | --sweep   — removes both worktrees for a PR (or any older than 3 days)
+# prwatch-cleanup.sh <key> | --sweep   — removes both worktrees for a PR (or any older than 3 days; the sweep also
+# archives old agenthook markers and deletes stopped-*/eod-done-* session files older than two days)
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/opt/homebrew/bin:/usr/bin:/bin PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob nullglob
 PRW=$HOME/prwatch; export GIT_CONFIG_GLOBAL=$PRW/config/gitconfig GIT_CONFIG_NOSYSTEM=1
 if [[ ${1:-} == --sweep ]]; then targets=( $PRW/work/*(/Nm+3) ); [[ -n ${PRWATCH_TESTMODE:-} ]] && targets=()   # tests never sweep real worktrees
-  H=$PRW/state/harness; [[ -n ${PRWATCH_TESTMODE:-} ]] && H=${PRWATCH_STATE_DIR:-$PRW/test/state}/harness
-  old=( $H/*.(marker|stopped|ended)(Nm+1) ); (( ${#old} )) && mkdir -p $H/done && mv $old $H/done/   # other days' agenthook markers
+  SD=$PRW/state; [[ -n ${PRWATCH_TESTMODE:-} ]] && SD=${PRWATCH_STATE_DIR:-$PRW/test/state}; H=$SD/harness
+  old=( $H/*.(marker|stopped|ended)(Nm+1) ); (( ${#old} )) && mkdir -p $H/done && mv $old $H/done/   # earlier sessions' agenthook markers
+  old=( $SD/stopped-*(Nm+2) $SD/eod-done-*(Nm+2) ); (( ${#old} )) && rm -f $old                      # earlier sessions' stop / summary files
 else [[ ${1:-} == ACT-Training/[A-Za-z0-9._-]##\#[0-9]## ]] || exit 64; k=${1#ACT-Training/}; targets=( $PRW/work/${k%%\#*}-pr${k##*\#}-*(/N) ); fi
 for t in $targets; do
   if [[ $t == *-build ]]; then rm -rf -- $t            # standalone copy: never run git in it
