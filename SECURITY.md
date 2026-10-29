@@ -56,10 +56,12 @@ the repo's `watcher/` directory.
 - The model never calls `gh`. All GitHub reads and the single write (`prwatch-post.sh`) live in `watcher/bin/*.sh`.
 - Reviewers run in the foreground only. A reviewer found running in the background is treated as a harness fault
   and the review is abandoned (see `docs/fix-background-agents.md`).
-- `state/` is written only by the watcher's own scripts and hooks: `prwatch-state.sh` for `state.json` and the
-  events log, the launcher for `session.lock`, the hooks for the `harness/` markers and the heartbeat file
-  (`state/activity`), the prompt hook for its one-use request files, and `prwatch-notify.sh` for its throttle
-  markers and `notify.log`. The model has no write access to `state/`.
+- `state/` is written only by the watcher's own scripts and hooks, never by the model: `prwatch-state.sh`
+  (`state.json`, `events.jsonl`), `prwatch-tick.sh` (seeds `state.json`, recreates `session.lock`), the launcher
+  (`session.lock`), the hooks (`harness/` markers and log, `stopped-<date>`, the `cap/` request file),
+  `prwatch-notify.sh` (`notify-throttle/`, `notify.log`), and the heartbeat `state/activity` touched by the hooks
+  and the long-running scripts in `watcher/bin`. `state/` is in the sandbox `denyWrite` list and the Edit/Write
+  deny rules.
 - Hooks run with the user's permissions and run only scripts in this repository and `/usr/bin/touch`.
 - The watcher never updates itself and never fetches hook or reviewer code from elsewhere. A PR's own test run
   does restore packages inside the sandbox; that is accepted risk AR-5 in `docs/plan-v2.md`.

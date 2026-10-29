@@ -70,10 +70,22 @@ jobs:
       # The guard and settings.json name /Users/jack/prwatch literally (D24).
       # Empty ~/.ssh and ~/.config/gh exist so the harness's "credentials unreadable"
       # checks test the sandbox profile, not the absence of a directory.
+      #
+      # prwatch-ngtest.sh and prwatch-dotnettest.sh refuse to start unless node (Herd's
+      # nvm), chrome-headless-shell (puppeteer) and dotnet are installed. In harness test
+      # mode none of them is ever executed: a fake shell command stands in for Karma and
+      # `dotnet test`. Empty placeholders at those paths let the profile, verdict and
+      # run tests exercise the real script logic on a runner that has no toolchain.
       - name: Create /Users/jack as the test HOME
         run: |
           sudo mkdir -p /Users/jack/Desktop /Users/jack/.ssh /Users/jack/.config/gh
+          sudo mkdir -p "/Users/jack/Library/Application Support/Herd/config/nvm/versions/node/v0.0.0-placeholder/bin"
+          hs=/Users/jack/.cache/puppeteer/chrome-headless-shell/mac-0/chrome-headless-shell-mac-placeholder
+          sudo mkdir -p "$hs" && sudo touch "$hs/chrome-headless-shell" && sudo chmod +x "$hs/chrome-headless-shell"
           sudo chown -R "$(id -un)" /Users/jack
+          if [ ! -x /usr/local/share/dotnet/dotnet ]; then
+            sudo mkdir -p /usr/local/share/dotnet && sudo touch /usr/local/share/dotnet/dotnet && sudo chmod +x /usr/local/share/dotnet/dotnet
+          fi
 
       - name: Install the watcher into /Users/jack/prwatch
         run: HOME=/Users/jack ./install.sh
