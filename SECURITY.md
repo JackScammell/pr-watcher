@@ -69,7 +69,9 @@ the repo's `watcher/` directory.
   the `parliament` engine: then the pinned Parliament of Chaos plugin's own hooks also run, outside the sandbox
   (accepted risk AR-1). That is why its whole install tree is pinned, the session runs from a locked copy of it that
   is hashed again after locking, its hooks get no webhook or data-directory variables, and the launcher refuses a
-  plugin with a `.env` file beside its hooks. The watcher's own gates (`prwatch-skillhook.sh`, `prwatch-agenthook.sh
+  plugin with a `.env` file beside its hooks. The copy lives in `~/prwatch/plugin-snap/`, outside everything a
+  sandbox can write: it is in the sandbox `denyWrite` list and the Edit/Write deny rules, and the PR-test sandboxes
+  write only their build copy and `cache/`. The launcher refuses to use it if that folder or the copy is a symlink. The watcher's own gates (`prwatch-skillhook.sh`, `prwatch-agenthook.sh
   pre`) run as `<hook> || exit 2`, so a gate that crashes refuses the call.
 - The watcher never updates itself, never installs or updates a plugin, and never fetches hook or reviewer code from
   elsewhere. A PR's own test run does restore packages inside the sandbox; that is accepted risk AR-5 in

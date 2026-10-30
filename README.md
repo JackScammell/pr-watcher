@@ -19,7 +19,7 @@ git clone https://github.com/JackScammell/pr-watcher.git ~/Documents/GitHub/pr-w
 ~/Documents/GitHub/pr-watcher/install.sh
 ```
 
-`install.sh` copies `watcher/` into `~/prwatch` (leaving its `state/`, `repos/`, `cache/`, `work/` alone) and
+`install.sh` copies `watcher/` into `~/prwatch` (leaving its `state/`, `repos/`, `cache/`, `work/`, `plugin-snap/` alone) and
 puts **PR Watcher.command** on your Desktop. Double-click it to start a session.
 
 Reviews use the Parliament of Chaos reviewers when that plugin is installed exactly as pinned, and Claude Code's
