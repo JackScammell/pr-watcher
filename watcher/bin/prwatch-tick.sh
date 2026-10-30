@@ -4,6 +4,7 @@
 #   --window → pure read of the session window from the lock's started_epoch (no heartbeat, no lock check, no
 #              notification, no state write): in_window (elapsed < 7 h 30: a new council may start) | start_closed
 #              (< 8 h) | session_over (+ eod_due) | error no_session_start / clock_before_start.
+#   Every JSON that carries the window also carries engine (the lock's engine.engine, or null).
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/opt/homebrew/bin:/usr/bin:/bin LANG=en_GB.UTF-8 ${TZ:+TZ=$TZ} PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob
@@ -32,8 +33,9 @@ elapsed=$(( now - se ))
 if   (( elapsed < START_LIMIT )); then wst=in_window
 elif (( elapsed < END ));         then wst=start_closed
 else wst=session_over; fi
+eg=$(jq -c '.engine.engine // null' $S/session.lock 2>/dev/null); [[ -n $eg ]] || eg=null   # the launcher's engine, echoed as-is
 W=$(jq -nc --arg s "$(date -r $se -Iseconds)" --arg sh "$(hhmm $se)" --argjson m $(( elapsed / 60 )) --arg su "$(hhmm $(( se + START_LIMIT )))" --arg ea "$(hhmm $(( se + END )))" \
-  '{started:$s,started_hm:$sh,elapsed_min:$m,starts_until:$su,ends_at:$ea}')
+  --argjson eg "$eg" '{started:$s,started_hm:$sh,elapsed_min:$m,starts_until:$su,ends_at:$ea,engine:$eg}')
 win() { jq -c --arg st $1 --argjson x "${2:-{\}}" '{status:$st} + . + $x' <<<$W; }
 eod_due() { [[ -f $S/eod-done-$SID ]] && print false || print true; }
 if (( WONLY )); then [[ $wst == session_over ]] && out "$(win $wst "{\"eod_due\":$(eod_due)}")"; out "$(win $wst)"; fi
