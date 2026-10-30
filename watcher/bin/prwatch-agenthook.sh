@@ -9,7 +9,9 @@
 #   ended (SubagentStop): a marked agent finished on its own (TaskStop would now be refused before any hook runs)
 #        → <agentId>.stopped. Unmarked → <agentId>.ended note, in case the fault marker is written after it (race).
 #        Always exits 0: exit 2 on SubagentStop would keep the subagent running.
-#   pre  (PreToolUse *): Agent calls first pass the subagent-type allow-list (plan D6). Then, while this session has an unarchived fault (see live()), deny every tool except TaskStop/TaskList, Read/Glob/Grep,
+#   pre  (PreToolUse *): Agent calls (tool Agent or Task, or any call naming a subagent_type) first pass the subagent-type
+#        allow-list (plan D6). pre fails closed: settings.json runs it as "… pre || exit 2", since Claude Code blocks
+#        only on exit 2. Then, while this session has an unarchived fault (see live()), deny every tool except TaskStop/TaskList, Read/Glob/Grep,
 #        CronList/CronDelete, ToolSearch (to load a deferred TaskStop) and canonical `prwatch-state.sh harness-abort|get` — nothing may prompt or start
 #        while PR code runs. Follow-up is `prwatch-state.sh harness-abort <key>` (needs every marker .stopped).
 # The model cannot write state/ (sandbox denyWrite + permission deny), so markers are not forgeable by PR text.
@@ -17,11 +19,11 @@
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" ${TZ:+TZ=$TZ} PATH=/usr/bin:/bin LANG=en_GB.UTF-8 PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob nullglob
-PRW=$HOME/prwatch; source $PRW/bin/prwatch-common.zsh
+PRW=$HOME/prwatch; source $PRW/bin/prwatch-common.zsh 2>/dev/null || { [[ ${1:-} == pre ]] && exit 2; exit 0; }
 S=$PRW/state
 [[ -n ${PRWATCH_TESTMODE:-} ]] && S=${PRWATCH_STATE_DIR:-$PRW/test/state}
-NL=$'\n'; H=$S/harness; SID=${PRWATCH_SESSION_ID:-}
-p=$(cat) || exit 0
+NL=$'\n'; H=$S/harness; SID=${PRWATCH_SESSION_ID:-}       # SID: this session's id (the skill hook reads PRWATCH_SESSION_ID directly)
+p=$(cat) || { [[ ${1:-} == pre ]] && exit 2; exit 0; }
 log() { mkdir -p $H; print -r -- "$(date -Iseconds) $*" >> $H/hook.log; }
 j() { print -r -- "$p" | /usr/bin/jq -r "$1" 2>/dev/null; }
 tool=$(j '.tool_name // ""')
@@ -74,7 +76,7 @@ case ${1:-} in
     elif [[ ! -f $H/$id.stopped ]]; then mkdir -p $H; : > $H/$id.ended; fi   # foreground agents: removed by post
     exit 0 ;;
   pre)
-    if [[ $tool == Agent ]]; then   # D6: which subagents may exist at all (specialists have Bash; senior-council and
+    if [[ $tool == (Agent|Task) || -n "$(j '.tool_input.subagent_type // empty')" ]]; then   # D6: which subagents may exist (specialists have Bash; senior-council and
       sa=$(j '.tool_input.subagent_type // ""')   # deliberation-conductor spawn); a grump only under parliament, and only
       g=${sa#chaos:grumpy-}                       # one whose memory the launcher froze (GRUMPS)
       if [[ -n "$(j '.tool_input.isolation // ""')" ]]; then why="subagents with isolation are not allowed"

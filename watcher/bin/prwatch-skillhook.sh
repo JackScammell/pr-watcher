@@ -10,13 +10,15 @@
 # payload that is not {tool_name:"Skill", tool_input:{skill:<string>[, args:<string>]}} (fail closed). The field names
 # were recorded from Claude Code 2.1.314; in test mode the raw tool_input is appended to state/harness/skillgate.log so
 # live-check L4 shows the cause if they ever change.
+# Claude Code blocks a call only on exit 2; any other non-zero exit lets it run. So the settings.json command is
+# "prwatch-skillhook.sh || exit 2": a crash here (a failed source, an unset variable under set -u) still refuses.
 [[ -z "${PRWATCH_CLEAN:-}" ]] && exec /usr/bin/env -i HOME="$HOME" PATH=/usr/bin:/bin LANG=en_GB.UTF-8 ${TZ:+TZ=$TZ} PRWATCH_CLEAN=1 \
   ${${(f)"$(/usr/bin/env | /usr/bin/grep '^PRWATCH_')"}:#} /bin/zsh "$0" "$@"
 emulate -L zsh; set -u; setopt extendedglob
-PRW=$HOME/prwatch; source $PRW/bin/prwatch-common.zsh
+no() { print -u2 "prwatch skill gate: $1"; exit 2; }
+PRW=$HOME/prwatch; source $PRW/bin/prwatch-common.zsh 2>/dev/null || no "cannot load prwatch-common.zsh (refused; nothing ran)"
 S=$PRW/state
 [[ -n ${PRWATCH_TESTMODE:-} ]] && S=${PRWATCH_STATE_DIR:-$PRW/test/state}
-no() { print -u2 "prwatch skill gate: $1"; exit 2; }
 p=$(cat 2>/dev/null) || p=""
 if [[ -n ${PRWATCH_TESTMODE:-} ]]; then mkdir -p $S/harness
   print -r -- "$(/usr/bin/jq -c '.tool_input' <<<"$p" 2>/dev/null || print unparsable)" >> $S/harness/skillgate.log; fi

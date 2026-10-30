@@ -1,5 +1,5 @@
 {
-  "$comment": "Skills: prwatch-skillhook.sh (PreToolUse matcher Skill) is the authoritative layer, an allow-list that fails closed; the Skill deny rules and skillOverrides below are backstops. Deny beats allow: a call matching both a deny and an allow rule is denied, so Skill(code-review *) in allow never lets through the code-review forms in deny. Subagents: prwatch-agenthook.sh pre allows only general-purpose, and chaos:grumpy-<name> under the parliament engine. `review` is an alias of `code-review` (Claude Code 2.1.314): a skillOverride or deny rule on review also disables code-review, so review has neither; the hook refuses it by name.",
+  "$comment": "Skills: prwatch-skillhook.sh (PreToolUse matcher Skill) is the authoritative layer, an allow-list that fails closed; the Skill deny rules and skillOverrides below are backstops. Deny beats allow: a call matching both a deny and an allow rule is denied, so Skill(code-review *) in allow never lets through the code-review forms in deny. Subagents: prwatch-agenthook.sh pre allows only general-purpose, and chaos:grumpy-<name> under the parliament engine. `review` is an alias of `code-review` (Claude Code 2.1.314): a skillOverride or deny rule on review also disables code-review, so review has neither; the hook refuses it by name. Both PreToolUse gates run as \"<hook> || exit 2\": Claude Code blocks only on exit 2, so a hook that crashes still refuses. Skill(chaos:*) already denies every Parliament command; the named chaos: entries are kept in case wildcard matching ever changes.",
   "model": "opus[1m]",
   "askUserQuestionTimeout": "10m",
   "env": {
@@ -238,7 +238,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jack/prwatch/bin/prwatch-agenthook.sh pre"
+            "command": "/Users/jack/prwatch/bin/prwatch-agenthook.sh pre || exit 2"
           }
         ]
       },
@@ -256,7 +256,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jack/prwatch/bin/prwatch-skillhook.sh"
+            "command": "/Users/jack/prwatch/bin/prwatch-skillhook.sh || exit 2"
           }
         ]
       }

@@ -1,5 +1,8 @@
 #!/bin/zsh
-# Run after every Claude Code update (a few cheap model calls, ~4 min): ~/prwatch/test/harness/live-check.sh
+# Run after every Claude Code update: ~/prwatch/test/harness/live-check.sh   (about 15 model runs, 5–10 min; L1 and
+# L2/L6 start reviewer subagents of their own, which do not follow --model haiku). Close every watcher window and
+# unlock ~/prwatch/config first: L6 freezes and thaws the real reviewer memory folders, and L1, L5/L6 write
+# config/engine-fallback.json.
 # Checks, against the REAL claude, the behaviour prwatch-agenthook.sh and self-test 7 depend on:
 #   A. auto mode + CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 → Agent tool_response.status == "completed" (foreground)
 #   B. without the variable, a background launch still looks like the fixtures (status async_launched, isAsync,
@@ -105,14 +108,14 @@ fi   # end of A–E
 
 # L — the review engine. Two results decide the launcher's engine and are written to config/engine-fallback.json, the
 # only place the launcher reads them (config/ must be unlocked to write it; nothing else ever writes this file):
-#   L1 fails → builtin_agent: true for this Claude Code version; passes → false
+#   L1 fails → builtin_agent: true for this Claude Code version; passes → false; inconclusive (SKIP) → unchanged
 #   L5 or L6 fails → parliament_blocked: true; both pass → false (only a passing run clears it)
 # L2, L3, L5, L6 need Parliament installed exactly as pinned (config/parliament.lock); otherwise they are skipped and
 # parliament_blocked keeps its previous value.
 source $PRW/bin/prwatch-common.zsh
 CV=$("$CLAUDE" --version); CV=${CV%% *}; SET=$PRW/config/settings.json; PLK=$PRW/config/parliament.lock; FBF=$PRW/config/engine-fallback.json
-PIN=$(jq -r '.installPath // ""' $PLK 2>/dev/null); pinned=0
-[[ -n $PIN && -d $PIN && "$(tree_sha256 $PIN)" == "$(jq -r '.tree_sha256 // ""' $PLK 2>/dev/null)" ]] && pinned=1
+PIN=$(jq -r '.install_path // ""' $PLK 2>/dev/null); pinned=0
+[[ -n $PIN && -d $PIN ]] && pin_matches $PLK $PIN && pinned=1
 MR=$HOME/.claude/agent-memory; FZ=(); LW=$PRW/work/prwatch__livecheck-pr1-0000000
 trap '/usr/bin/pkill -f "^sleep $SLP\$" 2>/dev/null; (( ${#FZ} )) && mem_thaw $MR $FZ >/dev/null; rm -rf $T $LW' EXIT
 englock() { fresh; jq --arg e $1 '. + {engine:{engine:$e}}' $T/state/session.lock > $T/l && mv $T/l $T/state/session.lock; }
@@ -121,12 +124,23 @@ wrun() {   # wrun <name> <cwd> [claude args…] — the watcher's REAL settings 
   ( cd $d && PATH="$PRW/shims:$PATH" CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1 GH_CONFIG_DIR=$PRW/gh-empty \
     "$CLAUDE" -p --output-format stream-json --verbose --model haiku --settings $SET --setting-sources "" --strict-mcp-config "$@" \
     < /dev/null 2>/dev/null | grep '^{' > $T/$o.jsonl ) }
+# Readers of a run's stream-json ($T/<name>.jsonl), each with an example of what it prints:
+#   uses l9 Bash   → {"command":"ls"}           the input of every <tool> call, one per line
+#   rerr l4 Skill  → true true false            is_error of each <tool> result, in call order
+#   pong l2x       → (exit 0)                   an Agent completed and its report (hand-back or inline) says PONG
+#   rtext l7       → NESTED-OK                  the text of every tool result
+#   atext l9       → The PR adds new.py …       the assistant's own words and the final result, never tool output
+#   memsnap        → 1730000000 /…/chaos-grumpy-code-reviewer/m.md   mtime and path under the memory root
 uses()  { jq -c --arg n $2 'select(.type=="assistant")|.message.content[]?|select(.type=="tool_use" and .name==$n)|.input' $T/$1.jsonl 2>/dev/null; }
 rerr()  { jq -rs --arg n $2 '[.[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .name==$n) | .id] as $ids
   | [.[] | select(.type=="user") | .message.content[]? | select(.type=="tool_result") | select(.tool_use_id as $t | $ids | index($t)) | (.is_error // false | tostring)] | join(" ")' $T/$1.jsonl 2>/dev/null; }   # is_error of each <tool> result, in order
 pong()  { jq -se '[.[] | select(.type=="user") | .tool_use_result? | objects | select(.status=="completed") | ((.handbackReport.text? // "") + (.content? | tostring))] | any(test("PONG"))' $T/$1.jsonl >/dev/null 2>&1; }   # completed, report says PONG (handback or inline)
 rtext() { jq -r 'select(.type=="user") | .message.content[]? | select(.type=="tool_result") | .content | if type=="array" then map(.text? // "") | join(" ") else tostring end' $T/$1.jsonl 2>/dev/null; }
-texts() { jq -r '.message.content[]? | (.text? // (.content? | if type=="array" then map(.text? // "") | join(" ") elif type=="string" then . else empty end)) // empty' $T/$1.jsonl 2>/dev/null; }
+atext() { jq -r 'if .type=="result" then (.result // empty) elif .type=="assistant" then (.message.content[]? | select(.type=="text") | .text) else empty end' $T/$1.jsonl 2>/dev/null; }
+trues() { local i o=(); for i in {1..$1}; do o+=(true); done; print -r -- ${(j: :)o}; }   # trues 3 → true true true
+gatelog() { (( $(wc -l < $T/state/harness/skillgate.log 2>/dev/null || print 0) == $1 )); }  # the skill gate saw exactly N calls
+skprompt() { local c o=(); for c in "$@"; do o+=("skill ${c%%|*}${${c#*|}:+ with args '${c#*|}'}"); done   # "<skill>|<args>" …
+  print -r -- "Make these $# Skill calls, one at a time, and nothing else (each may be refused; that is expected): ${(j:; :)o}."; }
 memsnap() { find $MR -path '*grumpy*' \( -type f -o -type d \) -exec stat -f '%m %N' {} + 2>/dev/null | sort; }
 PONG='Make one Agent call (subagent_type %s, description Probe, prompt "Reply with exactly PONG. Use no tools."). Then stop.'
 (( pinned )) && print "L: engine checks (Parliament installed as pinned)" || print "L: engine checks (Parliament not installed as pinned: L2, L3, L5, L6 skipped)"
@@ -135,17 +149,26 @@ PONG='Make one Agent call (subagent_type %s, description Probe, prompt "Reply wi
 # an obvious bug, while old.py (unchanged, on main) holds a committed secret. Reviewing the PR diff names new.py only.
 G=(/usr/bin/git -c user.name=prwatch -c user.email=prwatch@localhost -c init.defaultBranch=main -c commit.gpgsign=false)
 rm -rf $LW; mkdir -p $T/origin
-( cd $T/origin && $G init -q && print -l 'API_KEY = "sk-live-0123456789abcdef"' 'def ratio(a, b):' '    return a / b' > old.py && $G add . && $G commit -qm base ) >/dev/null 2>&1
+FAKEKEY=FAKE-prwatch-livecheck-0123456789abcdef                  # obviously fake: only a whole-tree review would mention it
+( cd $T/origin && $G init -q && print -l "API_KEY = \"$FAKEKEY\"" 'def ratio(a, b):' '    return a / b' > old.py && $G add . && $G commit -qm base ) >/dev/null 2>&1
 $G clone -q $T/origin $LW >/dev/null 2>&1 && ( cd $LW && $G checkout -qb pr && print -l 'def add(a, b):' '    """Return the sum of a and b."""' '    return a - b' > new.py && $G add . && $G commit -qm 'Add add()' ) >/dev/null 2>&1
 englock builtin; wrun l9 $PRW "Call the Skill tool exactly once: skill code-review, args 'low $LW'. When it returns, repeat its findings in one short paragraph and stop. Do not post, fix or run anything else."
-chk "L9: code-review returned in the foreground (no background launch, no fault marker)" \
-    '[[ $(rerr l9 Skill) == false ]] && ! grep -q async_launched $T/l9.jsonl && [[ -z $(print $T/state/harness/*.marker) ]]'
-chk "L4: code-review low ran no gh command and posted nothing" '! uses l9 Bash | grep -Eq "(^|[^a-z])gh |gh\"" && ! texts l9 | grep -qi "posted to github\|comment posted"'
+l9=0; chk "L9: code-review returned in the foreground (no background launch, no fault marker)" \
+    '[[ $(rerr l9 Skill) == false ]] && ! grep -q async_launched $T/l9.jsonl && [[ -z $(print $T/state/harness/*.marker) ]]' && l9=1
+chk "L4: code-review low ran no gh command and posted nothing" '! uses l9 Bash | grep -Eq "(^|[^a-z])gh |gh\"" && ! atext l9 | grep -qi "posted to github\|comment posted"'
 print "     L9 SubagentStop: $(print -l $T/state/harness/*.ended(N:t) | head -3 | tr "\n" " ")(an .ended note means SubagentStop carried an agent_id the post hook did not clear)"
-l1=1; texts l9 | grep -q 'new\.py\|a - b\|subtract' || l1=0; texts l9 | grep -qi 'API_KEY\|sk-live\|secret' && l1=0   # a committed key is never missed when it is in view
-chk "L1: /code-review on a worktree path reviews the PR diff (new.py), not the whole tree (old.py)" '(( l1 ))' "the launcher will use builtin-agent on this Claude Code version"
-englock builtin; wrun l4 $T "Make these five Skill calls, one at a time, and nothing else (each may be refused; that is expected): skill code-review with args '--comment $LW'; skill code-review with args '1803'; skill code-review with args 'ultra $LW'; skill code-review with args 'medium $PRW/bin'; skill review with args 'low $LW'."
-chk "L4: four disallowed code-review forms and review all refused, by the skill gate (each call is in its log)" '[[ $(rerr l4 Skill) == "true true true true true" ]] && (( $(wc -l < $T/state/harness/skillgate.log 2>/dev/null || print 0) == 5 ))' "a refusal that is not in the gate's log came from an override or deny rule, not the hook"
+# L1 is decided only on a conclusive run: L9 passed and the review said something. Naming old.py or the fake key means
+# the whole tree was reviewed (fail); naming new.py or its bug means the PR diff was (pass); anything else is a SKIP
+# that leaves builtin_agent as it was (one bad haiku run must not switch engines).
+l1=""; a9=$(atext l9)
+if (( l9 )) && [[ -n ${a9//[[:space:]]/} ]]; then
+  if   grep -q "old\.py\|$FAKEKEY" <<<$a9;            then l1=0
+  elif grep -qi 'new\.py\|a - b\|subtract' <<<$a9;   then l1=1; fi; fi
+if [[ -n $l1 ]]; then chk "L1: /code-review on a worktree path reviews the PR diff (new.py), not the whole tree (old.py)" '(( l1 ))' "the launcher will use builtin-agent on this Claude Code version"
+else print "SKIP L1 (inconclusive: L9 failed, or the review named neither file; builtin_agent left as it was)"; fi
+L4C=("code-review|--comment $LW" "code-review|1803" "code-review|ultra $LW" "code-review|medium $PRW/bin" "review|low $LW")   # every one must be refused
+englock builtin; wrun l4 $T "$(skprompt $L4C)"
+chk "L4: ${#L4C} disallowed code-review/review forms all refused, by the skill gate (each call is in its log)" '[[ $(rerr l4 Skill) == "$(trues ${#L4C})" ]] && gatelog ${#L4C}' "a refusal that is not in the gate's log came from an override or deny rule, not the hook"
 print "     L4 gate saw: $(sort -u $T/state/harness/skillgate.log 2>/dev/null | jq -r 'keys|join(",")' 2>/dev/null | sort -u | tr "\n" " ")"
 
 pb_fail=0; pb_ran=0
@@ -155,9 +178,10 @@ if (( pinned )); then pb_ran=1
     chk "L2: chaos:grumpy-$g foreground (completed), replied PONG, no fault marker" \
         'pong l2$g && [[ -z $(print $T/state/harness/*.marker) ]]' \
         "self-test 7b would stop every session: relaunch with PRWATCH_ENGINE=builtin"; done
-  englock parliament; wrun l3 $T --plugin-dir $PIN "Make these three Skill calls, one at a time, and nothing else (each may be refused; that is expected): chaos:parliament-loop, chaos:commit-and-push, chaos:ci-watch."
+  L3C=("chaos:parliament-loop|" "chaos:commit-and-push|" "chaos:ci-watch|")                    # every one must be refused
+  englock parliament; wrun l3 $T --plugin-dir $PIN "$(skprompt $L3C)"
   nchaos=$(jq -s '[.[] | select(.type=="system" and .subtype=="init") | (.slash_commands // [])[] | select(startswith("chaos:"))] | length' $T/l3.jsonl 2>/dev/null)
-  chk "L3: --plugin-dir loaded Parliament (${nchaos:-0} chaos: commands) and all three commands refused by the skill gate" '(( ${nchaos:-0} > 0 )) && [[ $(rerr l3 Skill) == "true true true" ]] && (( $(wc -l < $T/state/harness/skillgate.log 2>/dev/null || print 0) == 3 ))'
+  chk "L3: --plugin-dir loaded Parliament (${nchaos:-0} chaos: commands) and all ${#L3C} commands refused by the skill gate" '(( ${nchaos:-0} > 0 )) && [[ $(rerr l3 Skill) == "$(trues ${#L3C})" ]] && gatelog ${#L3C}'
   englock parliament; wrun l5 $T --plugin-dir $PIN "Run these three Bash commands one at a time, sandboxed as normal (each is expected to fail; do not retry or work around it): /usr/bin/touch $PIN/src/hooks/.env ; /usr/bin/touch $HOME/.claude/prwatch-live-x ; /usr/bin/touch /opt/homebrew/bin/prwatch-live-x"
   made=($PIN/src/hooks/.env(N) $HOME/.claude/prwatch-live-x(N) /opt/homebrew/bin/prwatch-live-x(N)); (( ${#made} )) && rm -f $made
   chk "L5: sandboxed writes to the plugin's hooks, ~/.claude and /opt/homebrew all refused" '(( $(uses l5 Bash | wc -l) >= 3 && ${#made} == 0 ))' || pb_fail=1
@@ -176,17 +200,20 @@ else print "SKIP L2 L3 L5 L6 (Parliament not installed as pinned)"; fi
 englock builtin; wrun l7 $T "Make one Agent call (subagent_type general-purpose, model haiku, description Nest, prompt \"Make one Agent call yourself (subagent_type general-purpose, prompt: Reply PONG). Then reply NESTED-OK if it returned PONG, or NESTED-REFUSED if you could not.\"). Then stop."
 if rtext l7 | grep -q NESTED-OK; then print "WARN L7: CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1 did not stop a nested spawn (the agent hook's type allow-list still refuses the spawning types)"
 else print "ok   L7: no nested spawn"; fi
-wrun l8 $T 'Call CronCreate with cron "*/15 * * * *", prompt "/prwatch-tick", recurring true. Then call CronCreate with cron "*/10 * * * *", prompt "/prwatch-tick". Then stop. (Load CronCreate with ToolSearch first if it is deferred.)'
-if (( $(uses l8 CronCreate | wc -l) >= 2 )); then
-  chk "L8: the sched gate parses CronCreate (the tick job allowed, another cadence refused)" '[[ $(rerr l8 CronCreate) == "false true" ]]' "the field names changed: the gate fails closed and nothing can be scheduled"
+L8C=("*/15 * * * *|false" "*/10 * * * *|true")            # "<cron>|<expected is_error>": the tick job allowed, another cadence refused
+c8=(); for c in $L8C; do c8+=("call CronCreate with cron \"${c%%|*}\", prompt \"/prwatch-tick\", recurring true"); done
+wrun l8 $T "${(j:. Then :)c8}. Then stop. (Load CronCreate with ToolSearch first if it is deferred.)"
+if (( $(uses l8 CronCreate | wc -l) >= ${#L8C} )); then
+  chk "L8: the sched gate parses CronCreate (the tick job allowed, another cadence refused)" '[[ $(rerr l8 CronCreate) == "${(j: :)${(@)L8C#*|}}" ]]' "the field names changed: the gate fails closed and nothing can be scheduled"
 else print "SKIP L8 (the model made no CronCreate calls; re-run)"; fi
-ba=$(( ! l1 )); pb=$(jq -r '.parliament_blocked // false' $FBF 2>/dev/null); (( pb_ran )) && { (( pb_fail )) && pb=true || pb=false; }
+pb=$(jq -r '.parliament_blocked // false' $FBF 2>/dev/null); (( pb_ran )) && { (( pb_fail )) && pb=true || pb=false; }
 [[ $pb == (true|false) ]] || pb=true
+case $l1 in 1) ba=0 ;; 0) ba=1 ;; *) [[ $(jq -r '.builtin_agent // false' $FBF 2>/dev/null) == true ]] && ba=1 || ba=0 ;; esac   # SKIP keeps it
 if [[ -f $FBF || $ba == 1 || $pb == true ]]; then
-  r1=failed; (( l1 )) && r1=passed; r5="not run"; (( pb_ran )) && { r5=passed; (( pb_fail )) && r5=failed; }
+  case $l1 in 1) r1=passed ;; 0) r1=failed ;; *) r1="inconclusive (kept)" ;; esac; r5="not run"; (( pb_ran )) && { r5=passed; (( pb_fail )) && r5=failed; }
   why="live-check under Claude Code $CV: L1 $r1; L5/L6 $r5"
   jq -n --argjson a $(( ba ? 1 : 0 )) --argjson b $pb --arg r "$why" --arg v $CV '{builtin_agent:($a == 1), parliament_blocked:$b, reason:$r, claude_version:$v}' > $FBF.tmp 2>/dev/null && mv $FBF.tmp $FBF \
-    && print "     wrote config/engine-fallback.json: $(jq -c . $FBF)" || { rm -f $FBF.tmp 2>/dev/null; print "FAIL could not write $FBF (config/ locked? unlock it and re-run)"; (( fail++ )); }
+    && print "     wrote config/engine-fallback.json: $(jq -c . $FBF)" || { rm -f $FBF.tmp 2>/dev/null; print "FAIL could not write $FBF (config/ locked? unlock it and re-run)"; (( ++fail )); }
 fi
 
 (( fail == 0 )) && print "live check passed${skipD:+ (D dotnet skipped: $skipD)}" || print "live check FAILED: update fixtures/hook before relying on the watcher"

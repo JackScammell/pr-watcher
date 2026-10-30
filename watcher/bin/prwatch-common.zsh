@@ -71,17 +71,80 @@ repo_allowed() { [[ $(repo_status "$1" "$2") == (allowed|seen) ]] }
 ENGINES=(parliament builtin builtin-agent)
 GRUMPS=(security-nag code-reviewer privacy-paranoid testing-tyrant performance-troll accessibility-auditor
         architecture-skeptic maintainability-curmudgeon standards-enforcer documentation-pedant)
-# MEMORY_PREFIX: reviewer memory lives in ~/.claude/agent-memory/<MEMORY_PREFIX>-grumpy-<name> for the plugin loaded
-# with --plugin-dir (chaos@inline). live-check.sh L6 prints the folders a probe touches; if they differ, change this.
-MEMORY_PREFIX=chaos
+# PLUGIN_ID / MEMORY_PREFIX: what --plugin-dir names the plugin (chaos@inline) and where its reviewers keep memory
+# (~/.claude/agent-memory/<MEMORY_PREFIX>-grumpy-<name>). Both follow from the plugin's name; live-check.sh L6 prints
+# the folders a probe touches: if they differ, change these.
+PLUGIN_ID=chaos@inline MEMORY_PREFIX=chaos
 # engine_of <lock> <session_id> → the lock's engine.engine when the lock belongs to that session, else nothing.
 engine_of() { /usr/bin/jq -r --arg s "$2" 'if .session_id == $s then (.engine.engine // "") else "" end' "$1" 2>/dev/null; }
-# tree_sha256 <dir> → one SHA-256 over every file (and symlink target) under <dir>, names included (D3). Excluded:
-# .git, and the top-level .in_use/ folder, where Claude Code drops a file per running process (it changes on every
-# launch and is never loaded as plugin content). Sorted bytewise so the order is the same on every Mac.
-tree_sha256() { local h; h=$(/usr/bin/find -H "$1" \( -type f -o -type l \) -not -path '*/.git/*' -not -path "$1/.in_use/*" -print0 \
-  | LC_ALL=C /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/shasum -a 256 2>/dev/null | /usr/bin/shasum -a 256) || return 1; print -r -- ${h%% *}; }
+# parliament_installed <installed_plugins.json> → "<install folder><TAB><version>" of Claude Code's chaos@ entry, 0;
+# no such entry or an unreadable file → nothing, 1. The one reader of that file (launcher, install.sh, live-check).
+parliament_installed() { local r; r=$(/usr/bin/jq -r '[.plugins // {} | to_entries[] | select(.key | startswith("chaos@")) | .value[0]
+  | "\(.installPath // "")\t\(.version // "")"][0] // ""' "$1" 2>/dev/null); [[ -n ${r%%$'\t'*} ]] || return 1; print -r -- $r; }
+# tree_sha256 <dir> → one SHA-256 over the tree (D3), names included, sorted bytewise so every Mac agrees:
+#   a file    "F <mode> <sha256>  ./<path>"      a symlink  "L ./<path> -> <target>"  (never followed)
+# Excluded: .git, and the top-level .in_use/ folder, where Claude Code drops a file per running process (it changes on
+# every launch and is never loaded as plugin content). Fails (1, prints nothing) on a symlink to a directory or to
+# anything outside <dir>, an unreadable file, or any other error: a tree it cannot hash completely never matches a pin.
+tree_sha256() { emulate -L zsh; setopt pipefail; local d=${1:A} l f t tg h i; local -a files out ml sl
+  [[ -d $d ]] || return 1
+  l=$(cd $d && /usr/bin/find . \( -type f -o -type l \) -not -path './.git/*' -not -path './.in_use/*' -print0 | LC_ALL=C /usr/bin/sort -z) || return 1
+  for f in ${(0)l}; do
+    if [[ -L $d/$f ]]; then t=$(/usr/bin/readlink $d/$f) || return 1
+      [[ $t == /* ]] && tg=$t || tg=$d/${f:h}/$t
+      [[ -d $d/$f || ${tg:A} != "$d"/* ]] && return 1
+      out+=("L $f -> $t")
+    else files+=($f); fi
+  done
+  if (( ${#files} )); then                                       # one shasum and one stat for the whole tree
+    ml=(${(f)"$(cd $d && /usr/bin/stat -f %Lp -- $files 2>/dev/null)"}) || return 1
+    sl=(${(f)"$(cd $d && /usr/bin/shasum -a 256 -- $files 2>/dev/null)"}) || return 1
+    (( ${#ml} == ${#files} && ${#sl} == ${#files} )) || return 1
+    for i in {1..${#files}}; do out+=("F ${ml[i]} ${sl[i]}"); done
+  fi
+  h=$(print -rl -- $out | LC_ALL=C /usr/bin/sort | /usr/bin/shasum -a 256) || return 1
+  print -r -- ${h%% *}; }
+# pin_matches <parliament.lock> <dir> → 0 when <dir> hashes to the lock's tree_sha256 (a tree that cannot be hashed never does).
+pin_matches() { local want got; want=$(/usr/bin/jq -r '.tree_sha256 // ""' "$1" 2>/dev/null); [[ -n $want ]] || return 1
+  got=$(tree_sha256 "$2") || return 1; [[ $got == $want ]]; }
+# decide_engine <forced> <engine-fallback.json> <parliament.lock> <installed_plugins.json> <claude version> — the
+# launcher's engine choice (plan D1–D3, D22), one rule per line, first match wins. Sets ENGINE, REASON (plain English,
+# shown to Jack and stored in the lock), PLUG (the pinned folder, parliament only), PVER, FOUND (the installed
+# Parliament version, or "") and NOTES (lines for Jack). Returns 2 when the pinned tree has src/hooks/.env: refuse.
+decide_engine() { local ein=$1 fb=$2 pl=$3 pins=$4 cv=$5 fbok=1 blocked=0 row pp pv fv
+  local RP="~/Documents/GitHub/pr-watcher/install.sh --repin" LC="~/prwatch/test/harness/live-check.sh --engine"
+  ENGINE=builtin PLUG="" PVER="" REASON="" FOUND="" NOTES=()
+  row=$(parliament_installed "$pins") && FOUND=${row#*$'\t'}
+  [[ -f $fb && $(/usr/bin/jq -r type "$fb" 2>/dev/null) != object ]] && fbok=0              # unreadable: fails closed
+  [[ $(/usr/bin/jq -r '.parliament_blocked' "$fb" 2>/dev/null) == true ]] && blocked=1
+  pp=$(/usr/bin/jq -r '.install_path // ""' "$pl" 2>/dev/null); pv=$(/usr/bin/jq -r '.version // ""' "$pl" 2>/dev/null)
+  if   [[ -n $ein ]];                            then REASON="forced by PRWATCH_ENGINE=builtin"
+  elif (( ! fbok ));                             then REASON="config/engine-fallback.json cannot be read"
+                                                      NOTES+=("config/engine-fallback.json cannot be read, so Parliament is not loaded. Delete or fix it, then relaunch.")
+  elif (( blocked ));                            then REASON="live-check found Parliament writing where it should not"
+                                                      NOTES+=("Parliament was blocked by live-check under Claude Code $(/usr/bin/jq -r '.claude_version // "?"' "$fb"); you are on $cv. To clear it, run: $LC")
+  elif [[ ! -f $pl ]];                           then REASON="Parliament is not set up for this watcher"
+                                                      [[ -n $FOUND ]] && NOTES+=("Parliament $FOUND is installed but not pinned. Read it, then run: $RP")
+  elif [[ -z $pp || ! -d $pp ]];                 then REASON="the pinned Parliament folder is missing"
+  elif [[ -e $pp/src/hooks/.env || -L $pp/src/hooks/.env ]]; then return 2
+  elif ! pin_matches "$pl" "$pp";                then REASON="Parliament's files differ from the pin"
+    if [[ -n $FOUND && $FOUND != $pv ]];         then NOTES+=("Parliament $FOUND is installed but the watcher is pinned to $pv. Read what changed in the plugin (its release notes and hooks), then run: $RP")
+    else                                              NOTES+=("Parliament ${pv}'s files differ from the pin. Read what changed in the plugin (its hooks especially), then run: $RP"); fi
+  else ENGINE=parliament PLUG=$pp PVER=$pv REASON="its files match the pin"; fi
+  # builtin-agent replaces builtin only when live-check recorded it for THIS Claude Code version, and never when forced
+  (( fbok )) && [[ $ENGINE == builtin && -z $ein && $(/usr/bin/jq -r '.builtin_agent' "$fb" 2>/dev/null) == true ]] || return 0
+  fv=$(/usr/bin/jq -r '.claude_version // ""' "$fb" 2>/dev/null)
+  if [[ $fv == $cv ]]; then ENGINE=builtin-agent REASON="$REASON; Claude Code's /code-review cannot review a worktree on this version"
+  else NOTES+=("config/engine-fallback.json is for Claude Code $fv, you are on $cv. To check this version, run: $LC"); fi; }
+# engine_json → the lock's engine object from ENGINE, PLUG, PVER and REASON (the snapshot folder in plugin_dir).
+engine_json() { /usr/bin/jq -nc --arg e $ENGINE --arg v "$PVER" --arg d "$PLUG" --arg r "$REASON" --arg id $PLUGIN_ID \
+  '{engine:$e, plugin_id:(if $e == "parliament" then $id else null end), version:(if $v == "" then null else $v end),
+    plugin_dir:(if $d == "" then null else $d end), reason:$r}'; }
+# lock_frozen <session.lock> → the folders its frozen_memory lists, one per line (use as ${(f)"$(lock_frozen L)"}).
+lock_frozen() { /usr/bin/jq -r '.frozen_memory[]? // empty' "$1" 2>/dev/null; }
 # memdir_ok <root> <path> — 0 only for <root>/<MEMORY_PREFIX>-grumpy-<one of GRUMPS>; the only paths chflags touches.
 memdir_ok() { local g; for g in $GRUMPS; do [[ $2 == $1/${MEMORY_PREFIX}-grumpy-$g ]] && return 0; done; return 1; }
 # mem_thaw <root> <path>... — clear uchg (recursively) on every listed path that passes memdir_ok; prints how many.
 mem_thaw() { local r=$1 p c=0; shift; for p in "$@"; do memdir_ok $r $p && [[ -d $p ]] && /usr/bin/chflags -R nouchg $p 2>/dev/null && (( ++c )); done; print $c; }
+# watcher_pid_live <pid> — 0 when <pid> is alive and is a watcher window (the launcher), not a reused pid.
+watcher_pid_live() { [[ $1 == <-> ]] && kill -0 $1 2>/dev/null && [[ "$(/bin/ps -p $1 -o command= 2>/dev/null)" == *"PR Watcher.command"* ]]; }
