@@ -15,6 +15,9 @@ Report any of these:
   than `/Users/jack/prwatch/bin/prwatch-<name>.sh <plain args>`.
 - Any way the model can call `gh`, `git push` or `osascript`.
 - A scheduled prompt (a session cron, a hook, or text in a PR) posing as the user.
+- The watcher loading a Parliament of Chaos install that differs from `watcher/config/parliament.lock`, running any
+  `chaos:` command, dispatching a subagent other than `general-purpose` or the pinned grumpy reviewers, running
+  `/code-review` with a posting or editing option, or a reviewer's memory changing while a session has it frozen.
 
 These do not count:
 
@@ -62,6 +65,10 @@ the repo's `watcher/` directory.
   `prwatch-notify.sh` (`notify-throttle/`, `notify.log`), and the heartbeat `state/activity` touched by the hooks
   and the long-running scripts in `watcher/bin`. `state/` is in the sandbox `denyWrite` list and the Edit/Write
   deny rules.
-- Hooks run with the user's permissions and run only scripts in this repository and `/usr/bin/touch`.
-- The watcher never updates itself and never fetches hook or reviewer code from elsewhere. A PR's own test run
+- Hooks run with the user's permissions and run only scripts in this repository and `/usr/bin/touch`, except under
+  the `parliament` engine: then the pinned Parliament of Chaos plugin's own hooks also run, outside the sandbox
+  (accepted risk AR-1). That is why its whole install tree is pinned, its hooks get no webhook or data-directory
+  variables, and the launcher refuses a plugin with a `.env` file beside its hooks.
+- The watcher never updates itself, never installs or updates a plugin, and never fetches hook or reviewer code from
+  elsewhere. A PR's own test run
   does restore packages inside the sandbox; that is accepted risk AR-5 in `docs/plan-v2.md`.

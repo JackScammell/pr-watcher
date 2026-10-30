@@ -22,6 +22,11 @@ git clone https://github.com/JackScammell/pr-watcher.git ~/Documents/GitHub/pr-w
 `install.sh` copies `watcher/` into `~/prwatch` (leaving its `state/`, `repos/`, `cache/`, `work/` alone) and
 puts **PR Watcher.command** on your Desktop. Double-click it to start a session.
 
+Reviews use the Parliament of Chaos reviewers when that plugin is installed exactly as pinned, and Claude Code's
+built-in `/code-review` otherwise; the launcher prints which (`Engine:`), and how to install Parliament if it is
+missing. See "Review engines" in `watcher/README.md`. `install.sh --repin` pins the installed plugin and
+`install.sh --thaw` unfreezes reviewer memory a killed window left frozen.
+
 Re-run `install.sh` after pulling changes, with the watcher closed. If you have locked `~/prwatch` (`chflags uchg`,
 see `watcher/README.md`), unlock it first; `install.sh` refuses while it is locked. Afterwards run
 `~/prwatch/test/harness/run.sh`, and after any Claude Code update run `~/prwatch/test/harness/live-check.sh`.
@@ -40,7 +45,8 @@ see `watcher/README.md`), unlock it first; `install.sh` refuses while it is lock
 | `docs/history/cap-override.md` | `cap N`: the one-day review allowance and how the scripts enforced it (retired by the v2 plan; kept for the record) |
 | `docs/windows-port.md` | The council-approved plan for running the watcher on Windows (WSL2), from this same repo |
 | `docs/windows-wsl.md` | Installing WSL2 and the `PRWatcher` distro on Windows (install chapter; the rest comes with the port) |
-| `watcher/test/harness/` | `run.sh` (offline safety-net tests) and `live-check.sh` (real Claude Code check after updates) |
+| `watcher/test/harness/` | `run.sh` (offline safety-net tests) and `live-check.sh` (real Claude Code check after updates; `--engine` runs only the review-engine checks) |
+| `watcher/config/parliament.lock` | The pinned Parliament of Chaos install (version, folder, tree hash); written by `install.sh --repin` |
 | `CONTRIBUTING.md` | Where things live, the edit-install-test-lock loop, and the PR rules |
 | `SECURITY.md` | What counts as a vulnerability, how to report one, and what the watcher does and does not do |
 | `CHANGELOG.md` | What changed in each release |
