@@ -38,7 +38,7 @@ Reviewers suggest: <RECOMMENDATION IN CAPS>
 - `show` → print the full draft, re-ask. `open` → tell Jack the path to open (you cannot run `open`), re-ask.
 - `edited` → Jack edited `review-body.md`: re-read, show the diff against what you showed, re-freeze (new `h`), re-ask.
 - any other text → a change request: edit `A/draft/review-body.md` (keep line 1 marker exactly), show the diff, re-freeze, re-ask.
-- `ask <angle>: <question>` → re-dispatch that one reviewer (foreground `Agent`, with its previous `reviews/<angle>.md`), show the answer, re-ask.
+- `ask <member>: <question>` → re-dispatch that one reviewer with the **same `subagent_type`** it had in the review (`general-purpose` for a watcher angle or `default-review`, `chaos:grumpy-<name>` for a Parliament member), foreground, with its previous `reviews/<member>.md`; show the answer, re-ask. `code-review` cannot take a question: say so and re-ask.
 - `run tests` (only needed when the automatic runs couldn't run something; normally they cover .NET, Angular and Python) → **not available for Laravel** (say so: "Tests: NOT run (Laravel — Flux Pro credentials)"). Otherwise pick the recipe from `profile.json` (`dotnet-test` if has_dotnet, `ng-test` if has_angular, `python-unittest` if has_python) and run `/Users/jack/prwatch/bin/prwatch-buildrun.sh <key> <recipe>` with Bash **`timeout: 2400000`** (ask rule + its own Mac dialog). Then re-dispatch testing-build with the log, update the draft/meta, re-freeze, re-ask.
 - `run probe <id>` → `/Users/jack/prwatch/bin/prwatch-buildrun.sh <key> dotnet-probe|ng-probe <id>` (same timeout), then as above.
 - `later` → `set <key> awaiting_decision`, stop.

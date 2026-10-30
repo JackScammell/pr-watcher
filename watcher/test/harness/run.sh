@@ -4,7 +4,9 @@
 # templates, guard, settings, launcher, skill wording, the 8-hour session window (B1), hook-owned stop/pause (B2),
 # the launcher exit notice (B2.7/B2.8), the key grammar (B4), owner-bearing paths and prep/post arguments (B5), the
 # PRWATCH_LOGIN plumbing (B6), the scheduling gate (B8), prose values (B9), legacy inputs (B10), the state lock on set
-# (B11), the first-sighting repo gate and the allow/block gate on prep, set and tick (B12) and repo↔install sync. Runs the INSTALLED scripts.
+# (B11), the first-sighting repo gate and the allow/block gate on prep, set and tick (B12), the review engine record,
+# Parliament pin and reviewer-memory freeze (B3), the skill gate and subagent types (B7) and repo↔install sync.
+# Runs the INSTALLED scripts.
 #   PRWATCH_LAUNCHER=<repo>/launcher/PR\ Watcher.command  (default: the Desktop copy)
 #   PRWATCH_REPO=<repo>/watcher                           (for the sync check; skipped visibly if missing)
 # Mutations (plan §7, applied to the installed copy; each must fail the named check):
@@ -24,24 +26,28 @@
 #   M16 prep skips the repo gate                         → "B12: prep on a repo with no repos entry and no prs key → 25 repo not allowed, nothing cloned"
 #   M17 state set skips the repo gate                    → "B12: set on a key whose repo is absent → 64 repo not allowed, repo_not_allowed event, no prs entry"
 #   M18 tick's new_repo notification sent per PR again   → "B12: two PRs of one unseen repo → two new_repo rows, one notice, one newrepo notification"
+#   M9  skill gate exits 0 on an empty skill field       → "B7: skill '' (no args) → 2"
+#   M10 --comment dropped from the gate's refused words  → "B7: code-review high <a--comment worktree> → 2"
+#   M12 engine parliament but no --plugin-dir in argv    → "B3: pinned tree matches → parliament, --plugin-dir right after --setting-sources"
 emulate -L zsh; set -u; setopt nullglob
 export TZ=Europe/London
 PRW=$HOME/prwatch; B=$PRW/bin; FX=${0:A:h}/fixtures; fail=0; n=0
 T=$(mktemp -d /tmp/pwh.XXXXXX); W=$PRW/work/ACT-Training__Zzzt-pr9-0123456; W2=$PRW/work/Some-Org__Zzzt-pr9-0123456; RZL=$PRW/repos/ACT-Training__Zzzt; PA=$PRW/test/harness-post-$$; pids=()
-trap 'kill $pids 2>/dev/null; rm -rf $T $W $W2 $PA $W-build; [[ -L $RZL ]] && rm -f $RZL' EXIT   # RZL: the B5 derivation check's symlinked clone
+P3=$(mktemp -d /tmp/pwh3.XXXXXX); WC=$PRW/work/Some-Org__a--comment-pr1-0123456; WL=$PRW/work/Some-Org__Link-pr1-0123456   # B3 fixtures (launch() wipes $T); B7 worktrees
+trap 'kill $pids 2>/dev/null; chflags -R nouchg $T $P3 2>/dev/null; rm -rf $T $P3 $W $W2 $WC $PA $W-build $PRW/work/prwatch__selftest-pr1-0000000; rm -f $WL; [[ -L $RZL ]] && rm -f $RZL' EXIT   # RZL: the B5 derivation check's symlinked clone; B3 freezes files under $T/$P3
 export PRWATCH_TESTMODE=1 PRWATCH_STATE_DIR=$T PRWATCH_STUB_BIN=$PRW/test/stub PRWATCH_SESSION_ID=sid-A PRWATCH_PID=1
 export PRWATCH_LOGIN=stubuser                           # what the launcher exports from `gh api user` (the stub gh answers the same; B6 varies it)
 SE=$(date -j -f %Y-%m-%dT%H:%M:%S 2026-09-29T09:00:00 +%s)        # session start: a Tuesday, BST. Ticks use PRWATCH_NOW=$((SE+offset))
 ok()   { (( n++ )); if eval "$2"; then print "ok   $1"; else print "FAIL $1"; (( fail++ )); fi; }
 lockfor() { jq -nc --arg s ${1:-sid-A} --argjson e ${2:-$SE} '{session_id:$s,pid:1,started_epoch:$e}' > $T/session.lock; }
-reset() { rm -rf $T/*(N) $T/.*(N); print '{"prs":{},"go_ahead":{},"repos":{"ACT-Training/Vision":"allowed","ACT-Training/Zzzt":"allowed"}}' > $T/state.json; lockfor sid-A $SE; }   # repos seeded: an unseen repo is new_repo (B12)
+reset() { chflags -R nouchg $T 2>/dev/null; rm -rf $T/*(N) $T/.*(N); print '{"prs":{},"go_ahead":{},"repos":{"ACT-Training/Vision":"allowed","ACT-Training/Zzzt":"allowed"}}' > $T/state.json; lockfor sid-A $SE; }   # repos seeded: an unseen repo is new_repo (B12)
 norepos() { jq -c '.repos={}' $T/state.json > $T/s && mv $T/s $T/state.json; }
 seedrepo() { jq -c --arg r $1 --arg v $2 '.repos[$r]=$v' $T/state.json > $T/s && mv $T/s $T/state.json; }      # seedrepo <owner/repo> allowed|blocked (as given: the scripts look up case-insensitively)
 rp() { jq -r --arg r ${1:l} '[.repos|to_entries[]|select(.key|ascii_downcase==$r)|.value]|first // "null"' $T/state.json; }   # repos[<repo>] in any case
 review() { $B/prwatch-state.sh set ACT-Training/Vision#1 reviewing sha=abc step=council attempts=1 >/dev/null; }
 post() { $B/prwatch-agenthook.sh post < $FX/$1 2>$T/err; }
 ended() { $B/prwatch-agenthook.sh ended < $FX/$1 2>/dev/null; }
-tj()   { jq -nc --arg t "$1" --arg c "${2:-}" '{tool_name:$t, tool_input:(if $c=="" then {} else {command:$c} end)}'; }
+tj()   { jq -nc --arg t "$1" --arg c "${2:-}" '{tool_name:$t, tool_input:(if $t=="Agent" then {subagent_type:"general-purpose"} elif $c=="" then {} else {command:$c} end)}'; }   # an Agent call names its type (B7)
 pre()  { tj "$@" | $B/prwatch-agenthook.sh pre 2>/dev/null; }          # pre <tool> [bash command] → hook exit code
 denied() { pre "$@"; (( $? == 2 )); }
 abort() { $B/prwatch-state.sh harness-abort $1 >/dev/null; }
@@ -238,7 +244,7 @@ ok "launcher exports var before claude"    '[[ -n $e && -n $c ]] && (( e < c ))'
 # --- sandboxed tests (docs/fix-sandbox-tests.md)
 AN=$PRW/angles/testing-build.md
 ok "settings: .NET uses IPv4 in the sandbox" '[[ "$(jq -r .env.DOTNET_SYSTEM_NET_DISABLEIPV6 $C)" == 1 ]]'
-for sc in prep buildrun post tick state notify cleanup prompthook; do
+for sc in prep buildrun post tick state notify cleanup prompthook skillhook; do
 ok "$sc re-execs with env -i (settings env can't leak in)" "head -20 $B/prwatch-$sc.sh | grep -q 'exec /usr/bin/env -i'"; done
 ok "dotnettest: runs with --diag, quotes testhost exception" 'grep -q -- "--diag:\$T/diag/log.txt" $B/prwatch-dotnettest.sh && grep -q "log.host" $B/prwatch-dotnettest.sh && grep -q "each test project separately" $AN'
 ok "angle: 'ran' defined, no APPROVE without" 'grep -q "What counts as \"ran\"" $AN && grep -q "no test ran, your verdict can.t be .APPROVE" $AN && grep -q "TESTS-RAN:" $AN'
@@ -511,12 +517,18 @@ cp "$PRWATCH_STATE_DIR/session.lock" "$PRWATCH_STATE_DIR/lock-seen.json"
 print -r -- "PRWATCH_STARTED_EPOCH=${PRWATCH_STARTED_EPOCH:-}" > "$PRWATCH_STATE_DIR/env-seen.txt"
 print -r -- "PRWATCH_LOCK_JSON=${PRWATCH_LOCK_JSON:-}" >> "$PRWATCH_STATE_DIR/env-seen.txt"
 print -r -- "PRWATCH_LOGIN=${PRWATCH_LOGIN:-}" >> "$PRWATCH_STATE_DIR/env-seen.txt"
+print -r -- "SCRUB=${TEAMS_WEBHOOK_URL-unset},${APP_NAME-unset},${CLAUDE_PLUGIN_DATA-unset},${PRWATCH_ENGINE-unset} DEPTH=${CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH:-}" >> "$PRWATCH_STATE_DIR/env-seen.txt"
+print -rl -- "$@" > "$PRWATCH_STATE_DIR/argv.txt"
+/bin/ls -lOd "${PRWATCH_TEST_MEMROOT:-/nonexistent}"/*-grumpy-*(N) 2>/dev/null | /usr/bin/grep -c uchg > "$PRWATCH_STATE_DIR/frozen-seen.txt"
 [[ ${PWH_CLAUDE_STOP:-} == 1 ]] && : > "$PRWATCH_STATE_DIR/stopped-$PRWATCH_SESSION_ID"
 exit 0
 EOF
 chmod +x $T/stub/claude; }
 launch() {   # launch <started_epoch|""> [extra env assignments]   (reset wipes $T, so the stubs are remade after it)
-  reset; mkstub; mkclaude; rm -f $T/notify-throttle/*(N); PRWATCH_STUB_BIN=$T/stub PRWATCH_TEST_STARTED_EPOCH=$1 env -u PRWATCH_LOGIN "${@:2}" /bin/zsh "$L" </dev/null >$T/launch.out 2>&1; print $? > $T/launch.rc; }   # -u: the login must come from the launcher, not from this harness (M6)
+  reset; mkstub; mkclaude; runl "$@"; }
+runl() {     # the launcher alone, on whatever $T holds; config, plugins list and memory root are always fixtures (B3)
+  rm -f $T/notify-throttle/*(N); PRWATCH_STUB_BIN=$T/stub PRWATCH_TEST_STARTED_EPOCH=$1 env -u PRWATCH_LOGIN \
+    PRWATCH_TEST_CONF=$P3/noconf PRWATCH_TEST_PINS=$P3/nopins.json PRWATCH_TEST_MEMROOT=$P3/mem "${@:2}" /bin/zsh "$L" </dev/null >$T/launch.out 2>&1; print $? > $T/launch.rc; }   # -u: the login must come from the launcher, not from this harness (M6)
 if [[ -f $L ]]; then
   nowe=$(date +%s); launch $((nowe-32400))
   ok "B2.7: launcher ran the stub claude, passed the lock and the start epoch" '[[ -f $T/lock-seen.json && $(jq .started_epoch $T/lock-seen.json) == $((nowe-32400)) ]] && grep -q "^PRWATCH_STARTED_EPOCH=$((nowe-32400))$" $T/env-seen.txt && [[ $(sed -n "s/^PRWATCH_LOCK_JSON=//p" $T/env-seen.txt | jq -r .session_id) == $(jq -r .session_id $T/lock-seen.json) ]]'
@@ -749,9 +761,135 @@ ok "B12: search of 99 rows → the pass runs: first miss recorded (still ready),
 for sc in buildrun ngtest dotnettest; do
 ok "$sc: sandbox re-exec excludes PRWATCH_LOGIN and PRWATCH_LOCK_JSON" "head -20 $B/prwatch-$sc.sh | grep -q PRWATCH_LOGIN && head -20 $B/prwatch-$sc.sh | grep -q PRWATCH_LOCK_JSON"; done
 
+# ============================================================================================================
+# B3 — engine record (plan D2–D4, D22). A fake plugin tree under $P3 is pinned with the shared tree_sha256; the stub
+# claude records its argv, its environment and how many memory folders were frozen while it ran.
+PD=$P3/plug/chaos/9.9.9; MEM=$P3/mem; CF=$P3/conf
+mkplug() { chflags -R nouchg $P3 2>/dev/null; rm -rf $P3/plug $MEM $CF; mkdir -p $PD/.claude-plugin $PD/.claude/rules $PD/src/hooks $PD/agents $PD/.in_use $PD/.git $CF
+  print '{"name":"chaos","version":"9.9.9"}' > $PD/.claude-plugin/plugin.json; print rule > $PD/.claude/rules/r.md
+  print '#!/bin/sh' > $PD/src/hooks/log_event.sh; print grump > $PD/agents/grumpy-code-reviewer.md; print 1 > $PD/.in_use/111; print ref > $PD/.git/HEAD
+  jq -nc --arg p $PD '{plugins:{"chaos@chaos":[{installPath:$p,version:"9.9.9"}]}}' > $P3/pins.json; }
+pin() { jq -nc --arg p ${1:-$PD} --arg s "$(source $B/prwatch-common.zsh; tree_sha256 $PD)" '{version:"9.9.9",installPath:$p,tree_sha256:$s}' > $CF/parliament.lock; }
+L3E=(PRWATCH_TEST_CONF=$CF PRWATCH_TEST_PINS=$P3/pins.json PRWATCH_TEST_MEMROOT=$MEM)
+eng() { jq -r '.engine.engine // "none"' $T/lock-seen.json 2>/dev/null; }
+afterss() { awk 'p { print; exit } /^project,local$/ { p = 1 }' $T/argv.txt; }                   # the argument after --setting-sources project,local
+noplug() { ! grep -qx -- --plugin-dir $T/argv.txt; }
+uchg() { ls -lOd $1 2>/dev/null | grep -q uchg; }
+if [[ -f $L ]]; then
+  mkplug; pin; launch $(date +%s) $L3E
+  ok "B3: pinned tree matches → parliament, --plugin-dir right after --setting-sources" '[[ $(eng) == parliament && $(afterss) == --plugin-dir && $(grep -x -A1 -- --plugin-dir $T/argv.txt | tail -1) == $PD ]]'
+  ok "B3: lock engine object: enum, plugin id, version, dir" '[[ $(jq -c ".engine|[.engine,.plugin_id,.version,.plugin_dir]" $T/lock-seen.json) == "[\"parliament\",\"chaos@inline\",\"9.9.9\",\"$PD\"]" ]] && grep -q "Engine: parliament 9.9.9" $T/launch.out'
+  ok "B3: every GRUMPS memory folder frozen while claude ran, listed in the lock under MEMORY_PREFIX" '[[ $(<$T/frozen-seen.txt) == 10 && $(jq ".frozen_memory|length" $T/lock-seen.json) == 10 ]] && jq -r ".frozen_memory[]" $T/lock-seen.json | grep -qx "$MEM/chaos-grumpy-security-nag"'
+  ok "B3: after a normal exit no uchg flag remains on the listed folders" '(for d in $(jq -r ".frozen_memory[]" $T/lock-seen.json); do [[ -d $d ]] && ! uchg $d || exit 1; done)'
+  ok "B3: the launcher scrubs the plugin hooks' env, sets spawn depth 1, consumes PRWATCH_ENGINE" 'launch $(date +%s) $L3E TEAMS_WEBHOOK_URL=https://x APP_NAME=a CLAUDE_PLUGIN_DATA=/tmp/x; grep -qx "SCRUB=unset,unset,unset,unset DEPTH=1" $T/env-seen.txt'
+  print 1 > $PD/.in_use/222; launch $(date +%s) $L3E
+  ok "B3: a new .in_use/ entry (Claude Code's per-process file) does not break the pin" '[[ $(eng) == parliament ]]'
+  for f in .claude-plugin/plugin.json .claude/rules/r.md src/hooks/log_event.sh; do mkplug; pin; print -n x >> $PD/$f; launch $(date +%s) $L3E
+  ok "B3: one byte added to $f → builtin, 'pinned to' line, no --plugin-dir, nothing frozen" '[[ $(eng) == builtin && $(<$T/frozen-seen.txt) == 0 ]] && noplug && grep -q "Parliament 9.9.9 is installed but the watcher is pinned to 9.9.9; read the diff, then run install.sh --repin" $T/launch.out && ! jq -e "has(\"frozen_memory\")" $T/lock-seen.json >/dev/null'; done
+  mkplug; pin $P3/gone; launch $(date +%s) $L3E
+  ok "B3: the lock names a missing folder → builtin" '[[ $(eng) == builtin && $(jq -r .engine.reason $T/lock-seen.json) == *missing* ]] && noplug'
+  mkplug; : > $PD/src/hooks/.env; pin; launch $(date +%s) $L3E
+  ok "B3: src/hooks/.env beside the pinned hooks → refused to start, claude not run" '(( $(<$T/launch.rc) != 0 )) && [[ ! -e $T/lock-seen.json ]] && grep -q "src/hooks/.env" $T/launch.out && grep -q "error launcher" $T/notify.log'
+  mkplug; pin; launch $(date +%s) $L3E PRWATCH_ENGINE=builtin
+  ok "B3: PRWATCH_ENGINE=builtin with a matching pin → builtin, no plugin, no freeze, no nudge" '[[ $(eng) == builtin && $(<$T/frozen-seen.txt) == 0 ]] && noplug && grep -q "Engine: builtin (PRWATCH_ENGINE=builtin)" $T/launch.out && ! grep -q "claude plugin install" $T/launch.out'
+  launch $(date +%s) $L3E PRWATCH_ENGINE=parliament
+  ok "B3: PRWATCH_ENGINE=parliament (not an accepted value) → refused" '(( $(<$T/launch.rc) != 0 )) && [[ ! -e $T/lock-seen.json ]]'
+  mkplug; rm -f $P3/pins.json; launch $(date +%s) $L3E
+  NUDGE=("claude plugin marketplace add https://github.com/JackScammell/Parliament-Of-Chaos.git" "claude plugin install chaos@chaos")
+  ok "B3: not installed, not pinned → builtin and the two install lines, verbatim" '[[ $(eng) == builtin ]] && grep -qx ${(q)NUDGE[1]} $T/launch.out && grep -qx ${(q)NUDGE[2]} $T/launch.out'
+  PREADME=$(jq -r '[.plugins // {} | to_entries[] | select(.key|startswith("chaos@")) | .value[0].installPath][0] // ""' $HOME/.claude/plugins/installed_plugins.json 2>/dev/null)/README.md
+  if [[ -f $PREADME ]]; then ok "B3: the install lines are byte-identical to the Parliament README's" 'grep -qx ${(q)NUDGE[1]} $PREADME && grep -qx ${(q)NUDGE[2]} $PREADME'
+  else print "skip B3 README comparison (Parliament not installed here)"; fi
+  ok "B3: watcher README shows the same two lines" 'grep -qx "  ${NUDGE[1]}" $PRW/README.md && grep -qx "  ${NUDGE[2]}" $PRW/README.md'
+  mkplug; print '{"builtin_agent":true,"parliament_blocked":false,"claude_version":"2.1.300"}' > $CF/engine-fallback.json; launch $(date +%s) $L3E
+  ok "B3: no pin + builtin_agent for this Claude Code → builtin-agent" '[[ $(eng) == builtin-agent ]] && noplug'
+  pin; launch $(date +%s) $L3E
+  ok "B3: matching pin + builtin_agent → parliament (the fallback only replaces builtin)" '[[ $(eng) == parliament ]]'
+  rm -f $CF/parliament.lock; print '{"builtin_agent":true,"parliament_blocked":false,"claude_version":"2.1.299"}' > $CF/engine-fallback.json; launch $(date +%s) $L3E
+  ok "B3: builtin_agent recorded under another Claude Code → ignored, re-run L1 line, builtin" '[[ $(eng) == builtin ]] && grep -q "engine-fallback.json is for 2.1.299, you are on 2.1.300: re-run live-check L1" $T/launch.out'
+  pin; for v in 2.1.300 2.1.299; do print "{\"builtin_agent\":false,\"parliament_blocked\":true,\"claude_version\":\"$v\"}" > $CF/engine-fallback.json; launch $(date +%s) $L3E
+  ok "B3: parliament_blocked (recorded under $v) + matching pin → builtin, never expires" '[[ $(eng) == builtin && $(<$T/frozen-seen.txt) == 0 ]] && noplug && grep -q "Parliament was blocked by live-check under Claude Code $v" $T/launch.out'; done
+  print 'not json' > $CF/engine-fallback.json; launch $(date +%s) $L3E
+  ok "B3: unreadable engine-fallback.json + matching pin → builtin (fails closed)" '[[ $(eng) == builtin ]] && noplug'
+  # thaw-on-start: a dead window's lock lists frozen folders; only GRUMPS folders under the memory root are touched
+  mkplug; reset; mkstub; mkclaude; mkdir -p $MEM/chaos-grumpy-security-nag $MEM/chaos-grumpy-budget-hawk; : > $MEM/chaos-grumpy-security-nag/m.md
+  chflags -R uchg $MEM/chaos-grumpy-security-nag $MEM/chaos-grumpy-budget-hawk; /usr/bin/true & dead=$!; wait $dead
+  jq -nc --argjson p $dead --arg a $MEM/chaos-grumpy-security-nag --arg b $MEM/chaos-grumpy-budget-hawk '{session_id:"sid-OLD",pid:$p,started_epoch:1,frozen_memory:[$a,$b]}' > $T/session.lock
+  runl $(date +%s) $L3E PRWATCH_ENGINE=builtin
+  ok "B3: stale lock → its folders thawed at start (files too), one line; a folder outside GRUMPS left alone" 'grep -q "Unfroze 1 reviewer memory folder(s) left frozen" $T/launch.out && ! uchg $MEM/chaos-grumpy-security-nag && ! uchg $MEM/chaos-grumpy-security-nag/m.md && uchg $MEM/chaos-grumpy-budget-hawk'
+  chflags -R nouchg $MEM
+  ok "B3: the launcher builds the folder list from GRUMPS and MEMORY_PREFIX, and checks each with memdir_ok" 'grep -q "for g in \$GRUMPS; do FROZEN+=(\"\$MEMROOT/\${MEMORY_PREFIX}-grumpy-\$g\")" "$L" && grep -q "memdir_ok \"\$MEMROOT\"" "$L"'
+else print "skip B3 launcher checks (no launcher at $L; set PRWATCH_LAUNCHER)"; fi
+IS=${REPO:-$HOME/Documents/GitHub/pr-watcher/watcher}; IS=${IS:h}/install.sh
+if [[ -f $IS ]]; then
+  H=$P3/home; mkdir -p $H/prwatch/state $H/.claude/agent-memory/chaos-grumpy-code-reviewer; chflags uchg $H/.claude/agent-memory/chaos-grumpy-code-reviewer
+  jq -nc --argjson p $$ --arg a $H/.claude/agent-memory/chaos-grumpy-code-reviewer '{session_id:"x",pid:$p,frozen_memory:[$a]}' > $H/prwatch/state/session.lock
+  HOME=$H /bin/zsh $IS --thaw >/dev/null 2>&1; rc=$?
+  ok "B3: install.sh --thaw while the lock's pid is alive → refused, flags remain" '(( rc != 0 )) && uchg $H/.claude/agent-memory/chaos-grumpy-code-reviewer'
+  /usr/bin/true & dead=$!; wait $dead; jq --argjson p $dead '.pid=$p' $H/prwatch/state/session.lock > $H/l && mv $H/l $H/prwatch/state/session.lock
+  out=$(HOME=$H /bin/zsh $IS --thaw 2>&1); rc=$?
+  ok "B3: install.sh --thaw after the window died → thawed, count printed, nothing installed" '(( rc == 0 )) && [[ $out == "Unfroze 1 reviewer memory folder(s)." ]] && ! uchg $H/.claude/agent-memory/chaos-grumpy-code-reviewer && [[ ! -e $H/prwatch/bin ]]'
+else print "skip B3 install.sh --thaw (no repo install.sh at $IS)"; fi
+englock() { jq -nc --arg e $1 --arg s ${2:-sid-A} --argjson t $SE '{session_id:$s,pid:1,started_epoch:$t,engine:{engine:$e,plugin_id:null,version:null,plugin_dir:null,reason:"test"}}' > $T/session.lock; }
+reset; englock parliament
+ok "B3: tick echoes the lock's engine (--window and a full tick)" '[[ $(win $SE | jq -r .engine) == parliament && $(tk $SE | jq -r .engine) == parliament ]]'
+reset; ok "B3: no engine in the lock → engine null" '[[ $(win $SE | jq -c .engine) == null ]]'
+halflock; LJ3=$(jq -nc --argjson e $SE '{session_id:"sid-A",pid:1,started_epoch:$e,engine:{engine:"builtin",reason:"x"}}'); PRWATCH_LOCK_JSON=$LJ3 tk $SE >/dev/null
+ok "B3: a tick-recreated lock carries the launcher's engine object" '[[ $(jq -c .engine $T/session.lock) == $(jq -c .engine <<<$LJ3) && $(jq .recreated $T/session.lock) == true ]]'
+
+# B7 — the skill gate (D5, D7): an allow-list that fails closed; and the agent hook's subagent types (D6)
+SKH=$B/prwatch-skillhook.sh
+sk7() { if (( $# >= 2 )); then jq -nc --arg s "$1" --arg a "$2" '{tool_name:"Skill",tool_input:{skill:$s,args:$a}}'; else jq -nc --arg s "$1" '{tool_name:"Skill",tool_input:{skill:$s}}'; fi | $SKH 2>/dev/null; print $?; }
+b7() { local want=$1 r; shift; r=$(sk7 "$@"); ok "B7: skill '$1' ${2-(no args)} → $want" "(( $r == $want ))"; }
+raw7() { local r; r=$(print -rn -- "$2" | $SKH 2>/dev/null; print $?); ok "B7: payload ${2[1,60]} → 2" "(( $r == 2 ))"; }
+reset; englock builtin; mkdir -p $W $WC; ln -sfn $PRW/bin $WL
+for s in prwatch-start prwatch-tick prwatch-eod; do b7 0 $s; b7 0 $s ""; b7 2 $s now; done
+b7 0 prwatch-review ACT-Training/Vision#1803; b7 0 prwatch-decide JackScammell/pr-watcher#1
+b7 2 prwatch-review; b7 2 prwatch-review '../x#1'; b7 2 prwatch-review 'ACT-Training/Vision#1803 extra'; b7 2 prwatch-decide 1803
+for e in low medium high; do b7 0 code-review "$e $W"; done
+for a in "xhigh $W" "ultra $W" "max $W" "high $W --comment" "--comment high $W" "high $W --post" "high $W --fix" "high --max-findings 3 $W" \
+         1803 '#1803' "high 1803" "high ACT-Training/Vision#1803" "high $PRW/repos/ACT-Training__Zzzt" "high $PRW/bin" "high $PRW/work/../bin" \
+         "high ~" "high $W; ls" "" "high  $W" "High $W" "high $W/" "high $PRW/work/Nobody__none-pr1-0123456" "high $WL" "high $WC"; do b7 2 code-review "$a"; done
+b7 2 code-review
+for e in parliament builtin-agent; do englock $e; b7 2 code-review "high $W"; done
+englock builtin sid-B; b7 2 code-review "high $W"; rm -f $T/session.lock; b7 2 code-review "high $W"; englock builtin
+for s in chaos:list-commands chaos:parliament-review security-review schedule loop review /prwatch-tick unknown-skill; do b7 2 $s; done
+b7 2 chaos:parliament-loop "5m /chaos:parliament-review"; b7 2 ""; b7 2 "" prwatch-tick
+for pl in '{"tool_name":"Skill","tool_input":{"name":"prwatch-tick"}}' '{"tool_name":"Skill","tool_input":{"skill":"prwatch-tick","extra":1}}' \
+          '{"tool_name":"Skill"}' 'not json' '' '{"tool_name":"Bash","tool_input":{"command":"ls"}}' '{"tool_name":"Skill","tool_input":{"skill":1}}' \
+          '{"tool_name":"Skill","tool_input":{"skill":"prwatch-tick","args":1}}' '[{"tool_name":"Skill","tool_input":{"skill":"prwatch-tick"}}]'; do raw7 x "$pl"; done
+ok "B7: test mode logs the raw tool_input (live-check L4 reads it)" 'grep -qx "{\"skill\":\"prwatch-tick\"}" $T/harness/skillgate.log && grep -qx unparsable $T/harness/skillgate.log'
+ok "B7: a refusal says why, on stderr" '[[ "$(jq -nc "{tool_name:\"Skill\",tool_input:{skill:\"chaos:ci-watch\"}}" | $SKH 2>&1 >/dev/null)" == "prwatch skill gate: Parliament commands are never run"* ]]'
+ah() { local r; r=$(jq -nc --argjson i "$2" '{tool_name:"Agent",tool_input:$i}' | $B/prwatch-agenthook.sh pre 2>/dev/null; print $?); ok "B7: agent ${2[1,70]} (engine $3) → $1" "(( $r == $1 ))"; }
+reset; englock builtin
+ah 0 '{"subagent_type":"general-purpose"}' builtin; ah 2 '{}' builtin; ah 2 '{"subagent_type":"Explore"}' builtin
+ah 2 '{"subagent_type":"chaos:senior-council"}' builtin; ah 2 '{"subagent_type":"chaos:grumpy-security-nag"}' builtin
+ah 2 '{"subagent_type":"general-purpose","isolation":"worktree"}' builtin
+englock parliament; for g in $(source $B/prwatch-common.zsh; print $GRUMPS); do ah 0 "{\"subagent_type\":\"chaos:grumpy-$g\"}" parliament; done
+ah 2 '{"subagent_type":"chaos:grumpy-budget-hawk"}' parliament; ah 2 '{"subagent_type":"chaos:deliberation-conductor"}' parliament
+ah 2 '{"subagent_type":"chaos:grumpy-security-nag","isolation":"remote"}' parliament; ah 2 '{"subagent_type":"chaos:grumpy-"}' parliament
+englock parliament sid-B; ah 2 '{"subagent_type":"chaos:grumpy-security-nag"}' "parliament, another session's lock"
+ok "guard: chflags and claude plugin refused" '[[ $(g "chflags -R nouchg $HOME/.claude/agent-memory") == 2 && $(g "claude plugin install chaos@chaos") == 2 && $(g "/opt/homebrew/bin/claude  plugin list") == 2 && $(g "$SKH") == 2 ]]'
+ok "settings: Skill PreToolUse hook → skillhook"  'jq -e ".hooks.PreToolUse[]|select(.matcher==\"Skill\")|.hooks[0].command == \"$SKH\"" $C >/dev/null'
+ok "settings: code-review allowed by rule, its posting/escalating forms denied" 'jq -e "(.permissions.allow|index(\"Skill(code-review *)\")) and ([\"Skill(code-review *--comment*)\",\"Skill(code-review *--post*)\",\"Skill(code-review *--fix*)\",\"Skill(code-review ultra*)\",\"Skill(code-review max*)\"] - .permissions.deny | length == 0) and (.permissions.deny|index(\"Skill(code-review *)\")|not) and (.permissions.deny|index(\"Skill(code-review)\")|not)" $C >/dev/null'
+ok "settings: Skill(chaos:*), named chaos commands, claude and chflags denied" 'jq -e "[\"Skill(chaos:*)\",\"Skill(chaos:parliament-loop)\",\"Skill(chaos:commit-and-push)\",\"Skill(chaos:ci-watch)\",\"Bash(claude *)\",\"Bash(* claude plugin *)\",\"Bash(chflags *)\"] - .permissions.deny | length == 0" $C >/dev/null'
+ok "settings: skillOverrides: code-review visible, eight chaos commands user-invocable-only, the rest off" 'jq -e "(.skillOverrides|has(\"code-review\")|not) and ([.skillOverrides|to_entries[]|select(.key|startswith(\"chaos:\"))|.value]|length == 8 and all(. == \"user-invocable-only\")) and ([.skillOverrides[\"security-review\"],.skillOverrides.schedule,.skillOverrides.loop]|all(. == \"off\"))" $C >/dev/null'
+ok "settings: review (an alias of code-review) neither overridden nor denied; the hook refuses it" 'jq -e "(.skillOverrides|has(\"review\")|not) and ([.permissions.deny[]|select(test(\"^Skill\\\\(review\"))]|length == 0)" $C >/dev/null && [[ $(sk7 review) == 2 && $(sk7 review "high $W") == 2 ]] && jq -r ".[\"\$comment\"]" $C | grep -q "alias of .code-review."'
+ok "settings: the user-invocable-only commands are also denied by name" 'jq -e "[.skillOverrides|keys[]|select(startswith(\"chaos:\"))|\"Skill(\(.))\"] - .permissions.deny | length == 0" $C >/dev/null'
+ok "settings: ~/.claude and /opt/homebrew write-denied; spawn depth 1" 'jq -e "(.sandbox.filesystem.denyWrite|index(\"/Users/jack/.claude\") and index(\"/opt/homebrew\")) and .env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH == \"1\"" $C >/dev/null'
+ok "settings: the comment names the hook as authoritative and deny-beats-allow" 'jq -r ".[\"\$comment\"]" $C | grep -q "prwatch-skillhook.sh .*authoritative" && jq -r ".[\"\$comment\"]" $C | grep -q "Deny beats allow"'
+ok "launcher: --plugin-dir only from the pinned engine; spawn depth exported before claude" 'grep -q "PLUGARGS=(--plugin-dir \"\$PLUG\")" "$L" && grep -q "\"\${PLUGARGS\[@\]}\"" "$L" && d1=$(grep -n "^export CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1" "$L" | cut -d: -f1) && cl=$(grep -n "^\"\$CLAUDE_BIN\" " "$L" | cut -d: -f1) && (( d1 < cl ))'
+# B9 for PR 4: the prose repeats what the scripts own
+GR=($(source $B/prwatch-common.zsh; print $GRUMPS)); RS=$S7/prwatch-review/SKILL.md
+ok "B9: review skill's Parliament table names exactly GRUMPS" '[[ "$(grep -o "grumpy-[a-z-]*[a-z]" $RS | sort -u)" == "$(print -l ${GR/#/grumpy-} | sort -u)" ]]'
+ok "B9: review skill: the grump brief (six files, five findings, cannot run), transcription, derived code-review verdict" 'grep -q "at most six further files" $RS && grep -q "at most 5 findings" $RS && grep -q "You cannot run anything" $RS && grep -q "transcribed verbatim from the hand-back (untrusted)" $RS && grep -q "any Critical or High finding → .REJECT." $RS && grep -q "\"panel\"" $RS'
+ok "B9: CLAUDE.md: invariant 8, and every engine named" 'grep -q "^8\. \*\*Parliament\.\*\*" $PRW/CLAUDE.md && grep -q "never a verdict mapping" $PRW/CLAUDE.md && (for e in $(source $B/prwatch-common.zsh; print $ENGINES); do grep -q "^- .$e. — " $PRW/CLAUDE.md || exit 1; done)'
+ok "B9: start skill: 7b and 7c, the fixture path is the launcher's" 'grep -q "^7b\. \*\*Parliament probe" $S7/prwatch-start/SKILL.md && grep -q "^7c\. \*\*Built-in review probe" $S7/prwatch-start/SKILL.md && grep -q "$PRW/work/prwatch__selftest-pr1-0000000" $S7/prwatch-start/SKILL.md && grep -q "\$PRW/work/prwatch__selftest-pr1-0000000" "$L"'
+ok "B9: decide asks with the same subagent_type; eod prints the engine" 'grep -q "same .subagent_type." $S7/prwatch-decide/SKILL.md && grep -q "Engine: <engine.engine>" $S7/prwatch-eod/SKILL.md'
+
 # --- installed copy must match the repo (tests run the installed scripts)
 if [[ -d $REPO ]]; then
-  drift=$(cd $REPO && for f in bin/*.sh bin/*.zsh shims/* config/settings.json CLAUDE.md BUILD-NOTES.md angles/*.md .claude/skills/*/SKILL.md test/harness/*.sh; do cmp -s $f $PRW/$f || print $f; done)
+  drift=$(cd $REPO && for f in bin/*.sh bin/*.zsh shims/* config/settings.json config/parliament.lock(N) CLAUDE.md BUILD-NOTES.md angles/*.md .claude/skills/*/SKILL.md test/harness/*.sh; do cmp -s $f $PRW/$f || print $f; done)
   ok "installed copy matches repo"         '[[ -z $drift ]]'; [[ -n $drift ]] && print "  drift: ${(f)drift}"
 else print "skip installed copy matches repo (no repo at $REPO; set PRWATCH_REPO)"; fi
 print "$((n-fail))/$n passed"; (( fail == 0 ))

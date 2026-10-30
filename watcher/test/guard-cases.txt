@@ -39,3 +39,6 @@
 0	/Users/jack/prwatch/bin/prwatch-prep.sh ../x#1 7458ff7f6973c8a0bc988b88a1816abcd01068e8 1
 2	/Users/jack/prwatch/bin/prwatch-skillhook.sh skill
 0	/Users/jack/prwatch/bin/prwatch-state.sh set JackScammell/pr-watcher#1 queued
+2	chflags -R nouchg /Users/jack/.claude/agent-memory/chaos-grumpy-code-reviewer
+2	claude plugin install chaos@chaos
+2	/opt/homebrew/bin/claude plugin list

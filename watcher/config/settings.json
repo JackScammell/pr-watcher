@@ -1,4 +1,5 @@
 {
+  "$comment": "Skills: prwatch-skillhook.sh (PreToolUse matcher Skill) is the authoritative layer, an allow-list that fails closed; the Skill deny rules and skillOverrides below are backstops. Deny beats allow: a call matching both a deny and an allow rule is denied, so Skill(code-review *) in allow never lets through the code-review forms in deny. Subagents: prwatch-agenthook.sh pre allows only general-purpose, and chaos:grumpy-<name> under the parliament engine. `review` is an alias of `code-review` (Claude Code 2.1.314): a skillOverride or deny rule on review also disables code-review, so review has neither; the hook refuses it by name.",
   "model": "opus[1m]",
   "askUserQuestionTimeout": "10m",
   "env": {
@@ -14,7 +15,8 @@
     "DOTNET_CLI_USE_MSBUILD_SERVER": "0",
     "npm_config_cache": "/Users/jack/prwatch/cache/npm",
     "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
-    "DOTNET_SYSTEM_NET_DISABLEIPV6": "1"
+    "DOTNET_SYSTEM_NET_DISABLEIPV6": "1",
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1"
   },
   "permissions": {
     "defaultMode": "auto",
@@ -40,7 +42,8 @@
       "Skill(prwatch-eod)",
       "TaskStop",
       "Bash(/Users/jack/prwatch/bin/prwatch-ngtest.sh *)",
-      "Bash(/Users/jack/prwatch/bin/prwatch-dotnettest.sh *)"
+      "Bash(/Users/jack/prwatch/bin/prwatch-dotnettest.sh *)",
+      "Skill(code-review *)"
     ],
     "ask": [
       "Bash(/Users/jack/prwatch/bin/prwatch-post.sh *)",
@@ -90,10 +93,6 @@
       "Write(~/Library/LaunchAgents/**)",
       "Edit(~/.claude/**)",
       "Write(~/.claude/**)",
-      "Skill(code-review *)",
-      "Skill(code-review)",
-      "Skill(review)",
-      "Skill(review *)",
       "Skill(security-review)",
       "Skill(security-review *)",
       "Skill(schedule)",
@@ -103,7 +102,50 @@
       "Read(~/.composer/**)",
       "Read(~/Documents/GitHub/**)",
       "Edit(//Users/jack/prwatch/shims/**)",
-      "Write(//Users/jack/prwatch/shims/**)"
+      "Write(//Users/jack/prwatch/shims/**)",
+      "Skill(chaos:*)",
+      "Skill(chaos:parliament-review)",
+      "Skill(chaos:parliament-review *)",
+      "Skill(chaos:summon-council)",
+      "Skill(chaos:summon-council *)",
+      "Skill(chaos:implement-task-list)",
+      "Skill(chaos:implement-task-list *)",
+      "Skill(chaos:parliament-loop)",
+      "Skill(chaos:parliament-loop *)",
+      "Skill(chaos:parliament-monitor)",
+      "Skill(chaos:parliament-monitor *)",
+      "Skill(chaos:parliament-webhook)",
+      "Skill(chaos:parliament-webhook *)",
+      "Skill(chaos:commit-and-push)",
+      "Skill(chaos:commit-and-push *)",
+      "Skill(chaos:ci-watch)",
+      "Skill(chaos:ci-watch *)",
+      "Skill(chaos:cut-release)",
+      "Skill(chaos:cut-release *)",
+      "Skill(chaos:fast-track)",
+      "Skill(chaos:fast-track *)",
+      "Skill(chaos:debate-topic)",
+      "Skill(chaos:debate-topic *)",
+      "Skill(chaos:ask-council)",
+      "Skill(chaos:ask-council *)",
+      "Skill(chaos:incident)",
+      "Skill(chaos:incident *)",
+      "Skill(chaos:plugin-install)",
+      "Skill(chaos:plugin-install *)",
+      "Skill(chaos:plugin-upgrade)",
+      "Skill(chaos:plugin-upgrade *)",
+      "Skill(chaos:update-dependencies)",
+      "Skill(chaos:update-dependencies *)",
+      "Skill(code-review ultra*)",
+      "Skill(code-review max*)",
+      "Skill(code-review xhigh*)",
+      "Skill(code-review *--comment*)",
+      "Skill(code-review *--fix*)",
+      "Skill(code-review *--post*)",
+      "Skill(code-review *--max-findings*)",
+      "Bash(claude *)",
+      "Bash(* claude plugin *)",
+      "Bash(chflags *)"
     ]
   },
   "sandbox": {
@@ -136,7 +178,9 @@
         "/Users/jack/prwatch/CLAUDE.md",
         "/Users/jack/prwatch/state",
         "/Users/jack/prwatch/repos",
-        "/Users/jack/prwatch/shims"
+        "/Users/jack/prwatch/shims",
+        "/Users/jack/.claude",
+        "/opt/homebrew"
       ]
     },
     "credentials": {
@@ -204,6 +248,15 @@
           {
             "type": "command",
             "command": "/Users/jack/prwatch/bin/prwatch-prompthook.sh sched"
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jack/prwatch/bin/prwatch-skillhook.sh"
           }
         ]
       }
@@ -275,10 +328,16 @@
     ]
   },
   "skillOverrides": {
-    "code-review": "off",
-    "review": "off",
     "security-review": "off",
     "schedule": "off",
-    "loop": "off"
+    "loop": "off",
+    "chaos:parliament-review": "user-invocable-only",
+    "chaos:summon-council": "user-invocable-only",
+    "chaos:implement-task-list": "user-invocable-only",
+    "chaos:parliament-loop": "user-invocable-only",
+    "chaos:parliament-monitor": "user-invocable-only",
+    "chaos:debate-topic": "user-invocable-only",
+    "chaos:ask-council": "user-invocable-only",
+    "chaos:fast-track": "user-invocable-only"
   }
 }

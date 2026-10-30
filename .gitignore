@@ -10,6 +10,8 @@ watcher/test/state/
 watcher/test/stub/*.log
 watcher/.claude/scheduled_tasks.lock
 *.lock
+!watcher/config/parliament.lock
+watcher/config/engine-fallback.json
 .DS_Store
 
 # Claude Code per-repo runtime data (agent worktrees, agent memory)

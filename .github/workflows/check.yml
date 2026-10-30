@@ -56,7 +56,7 @@ jobs:
         run: |
           set -u
           bad=0
-          for f in watcher/config/settings.json watcher/test/sim2/*.json watcher/test/harness/fixtures/*.json; do
+          for f in watcher/config/settings.json watcher/config/parliament.lock watcher/test/sim2/*.json watcher/test/harness/fixtures/*.json; do
             if jq empty "$f"; then echo "ok   $f"; else echo "BAD  $f"; bad=1; fi
           done
           exit $bad

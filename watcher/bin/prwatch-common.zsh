@@ -64,3 +64,24 @@ repo_status() { /usr/bin/jq -r --arg r "${2:l}" '((.repos // {}) | with_entries(
 # repo_allowed <state.json> <owner/repo> — the one source gate (exit status is the predicate; prints nothing):
 #   allowed or seen passes; blocked and unseen never do. prep, state set and tick all ask this and nothing else.
 repo_allowed() { [[ $(repo_status "$1" "$2") == (allowed|seen) ]] }
+# Review engine (plan D1–D4). The launcher decides it once and writes it into session.lock (engine.engine, one of
+# ENGINES); the hooks and the tick read it from there. GRUMPS is the whole Parliament panel the review skill may
+# dispatch (D9): the agent hook allows chaos:grumpy-<name> only for these names, and the launcher freezes the memory
+# folder of exactly these, so a reviewer whose memory is not frozen can never be dispatched.
+ENGINES=(parliament builtin builtin-agent)
+GRUMPS=(security-nag code-reviewer privacy-paranoid testing-tyrant performance-troll accessibility-auditor
+        architecture-skeptic maintainability-curmudgeon standards-enforcer documentation-pedant)
+# MEMORY_PREFIX: reviewer memory lives in ~/.claude/agent-memory/<MEMORY_PREFIX>-grumpy-<name> for the plugin loaded
+# with --plugin-dir (chaos@inline). live-check.sh L6 prints the folders a probe touches; if they differ, change this.
+MEMORY_PREFIX=chaos
+# engine_of <lock> <session_id> → the lock's engine.engine when the lock belongs to that session, else nothing.
+engine_of() { /usr/bin/jq -r --arg s "$2" 'if .session_id == $s then (.engine.engine // "") else "" end' "$1" 2>/dev/null; }
+# tree_sha256 <dir> → one SHA-256 over every file (and symlink target) under <dir>, names included (D3). Excluded:
+# .git, and the top-level .in_use/ folder, where Claude Code drops a file per running process (it changes on every
+# launch and is never loaded as plugin content). Sorted bytewise so the order is the same on every Mac.
+tree_sha256() { local h; h=$(/usr/bin/find -H "$1" \( -type f -o -type l \) -not -path '*/.git/*' -not -path "$1/.in_use/*" -print0 \
+  | LC_ALL=C /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/shasum -a 256 2>/dev/null | /usr/bin/shasum -a 256) || return 1; print -r -- ${h%% *}; }
+# memdir_ok <root> <path> — 0 only for <root>/<MEMORY_PREFIX>-grumpy-<one of GRUMPS>; the only paths chflags touches.
+memdir_ok() { local g; for g in $GRUMPS; do [[ $2 == $1/${MEMORY_PREFIX}-grumpy-$g ]] && return 0; done; return 1; }
+# mem_thaw <root> <path>... — clear uchg (recursively) on every listed path that passes memdir_ok; prints how many.
+mem_thaw() { local r=$1 p c=0; shift; for p in "$@"; do memdir_ok $r $p && [[ -d $p ]] && /usr/bin/chflags -R nouchg $p 2>/dev/null && (( ++c )); done; print $c; }
