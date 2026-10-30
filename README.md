@@ -29,7 +29,9 @@ missing. See "Review engines" in `watcher/README.md`. `install.sh --repin` pins 
 
 Re-run `install.sh` after pulling changes, with the watcher closed. If you have locked `~/prwatch` (`chflags uchg`,
 see `watcher/README.md`), unlock it first; `install.sh` refuses while it is locked. Afterwards run
-`~/prwatch/test/harness/run.sh`, and after any Claude Code update run `~/prwatch/test/harness/live-check.sh`.
+`~/prwatch/test/harness/run.sh`, and after any Claude Code update run `~/prwatch/test/harness/live-check.sh` (5 to
+10 minutes; close every watcher window and unlock `~/prwatch` first, because it writes `config/engine-fallback.json`
+and briefly freezes reviewer memory).
 
 ## Layout
 

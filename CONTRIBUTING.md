@@ -59,11 +59,14 @@ still fresh.
 
 ## Parliament re-pin cadence
 
+Re-pin checklist: install the release → read its changes (hooks, rules, agents) → `install.sh --repin` → `run.sh` →
+`live-check.sh --engine` → update T17's expected version in `watcher/README.md` if it names one → commit the lock with
+a changelog line.
+
 The watcher pins the Parliament of Chaos plugin by its whole install tree (`watcher/config/parliament.lock`, plan
 D3): its hooks run outside the watcher's sandbox, so any change to any file means the launcher falls back to the
-`builtin` engine. Every Parliament of Chaos release therefore needs a re-pin PR: install the new release, read its
-changes (hooks, rules, agents), run `install.sh --repin`, run `run.sh` and `live-check.sh --engine`, and commit the new
-lock with a changelog line. `install.sh --repin` never installs or updates the plugin itself.
+`builtin` engine. Every Parliament of Chaos release therefore needs a re-pin PR, made with the checklist above.
+`install.sh --repin` never installs or updates the plugin itself.
 
 ## Repository settings (convention)
 
