@@ -5,12 +5,12 @@ PRW="$HOME/prwatch"
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 source "$PRW/bin/prwatch-common.zsh"                           # window constants, login grammar, engine helpers (GRUMPS, tree_sha256, mem_thaw)
 SE=$(date +%s); CLAUDE_BIN=""                                  # session start, in epoch seconds: the only clock the window uses
-CONF="$PRW/config"; MEMROOT="$HOME/.claude/agent-memory"; PINS="$HOME/.claude/plugins/installed_plugins.json"; SNAPROOT="$PRW/cache"
+CONF="$PRW/config"; MEMROOT="$HOME/.claude/agent-memory"; PINS="$HOME/.claude/plugins/installed_plugins.json"; SNAPROOT="$PRW/plugin-snap"; RSYNC=/usr/bin/rsync
 if [[ -n "${PRWATCH_TESTMODE:-}" ]]; then                      # test harness only
   [[ -n "${PRWATCH_STUB_BIN:-}" ]] && { PATH="$PRWATCH_STUB_BIN:$PATH"; [[ -x "$PRWATCH_STUB_BIN/claude" ]] && CLAUDE_BIN="$PRWATCH_STUB_BIN/claude"; }
   [[ -n "${PRWATCH_TEST_STARTED_EPOCH:-}" ]] && SE=$PRWATCH_TEST_STARTED_EPOCH   # the only place this name appears
   CONF="${PRWATCH_TEST_CONF:-$CONF}"; MEMROOT="${PRWATCH_TEST_MEMROOT:-$MEMROOT}"; PINS="${PRWATCH_TEST_PINS:-$PINS}"   # the harness points these at fixtures
-  SNAPROOT="${PRWATCH_TEST_CACHE:-$SNAPROOT}"
+  SNAPROOT="${PRWATCH_TEST_SNAPROOT:-$SNAPROOT}"; RSYNC="${PRWATCH_TEST_RSYNC:-$RSYNC}"   # RSYNC: a stub that alters the copy (B3)
 fi
 print -n "\e]0;PR watcher\a"                                   # window title (claude may overwrite it)
 SD="$PRW/state"; [[ -n "${PRWATCH_TESTMODE:-}" ]] && SD="${PRWATCH_STATE_DIR:-$PRW/test/state}"
@@ -54,20 +54,27 @@ EIN="${PRWATCH_ENGINE:-}"; unset PRWATCH_ENGINE                # an input to thi
 decide_engine "$EIN" "$CONF/engine-fallback.json" "$CONF/parliament.lock" "$PINS" "$CV"
 (( $? == 2 )) && say_err "Parliament has a src/hooks/.env file beside its hooks, so the watcher will not load it. Remove the file, re-read the plugin, then run: ~/Documents/GitHub/pr-watcher/install.sh --repin"
 (( ${#NOTES} )) && print -rl -- $NOTES
-# 2c. Parliament runs from a snapshot the watcher owns (cache/parliament-<sha>), locked (chflags -R uchg) for the
-#     session and hashed AFTER locking, so the files checked are the files Claude Code reads for 8 hours; the install
-#     folder can change under it without effect. Its .in_use/ (Claude Code's per-process files) stays writable.
+# 2c. Parliament runs from a snapshot the watcher owns (plugin-snap/parliament-<sha>), locked (chflags -R uchg) for
+#     the session and hashed AFTER locking, so the files checked are the files Claude Code reads for 8 hours; the
+#     install folder can change under it without effect. plugin-snap/ is outside every sandbox's writable area (Bash
+#     sandbox denyWrite + Edit/Write deny; the PR-test sandboxes write only the build copy and cache/), because the
+#     plugin's hooks run unsandboxed. Its .in_use/ (Claude Code's own per-process files) stays writable.
 SNAP=""
 snap_lock()   { /usr/bin/chflags -R uchg "$1" && /usr/bin/chflags -R nouchg "$1/.in_use"; }
 snap_unlock() { /usr/bin/chflags -R nouchg "$1" 2>/dev/null; }
 if [[ $ENGINE == parliament ]]; then
   SNAP="$SNAPROOT/parliament-$(/usr/bin/jq -r .tree_sha256 "$CONF/parliament.lock")"
-  if [[ -d "$SNAP" ]] && pin_matches "$CONF/parliament.lock" "$SNAP"; then snap_lock "$SNAP"   # reuse
-  else snap_unlock "$SNAP"; rm -rf "$SNAP"; mkdir -p "$SNAPROOT" \
-         && /usr/bin/rsync -a --exclude '/.in_use' --exclude '.git' "$PLUG/" "$SNAP/" && mkdir -p "$SNAP/.in_use" && snap_lock "$SNAP"; fi
-  if [[ -d "$SNAP" ]] && pin_matches "$CONF/parliament.lock" "$SNAP"; then PLUG="$SNAP"
-  else snap_unlock "$SNAP"; ENGINE=builtin PLUG="" PVER="" REASON="Parliament's files differ from the pin"; SNAP=""
-    print "Parliament's files changed while the watcher was copying them, so it is not loaded. Relaunch to try again."; fi
+  if [[ -L "$SNAPROOT" || -L "$SNAP" ]]; then                  # never rm, copy or chflags through a planted link
+    ENGINE=builtin PLUG="" PVER="" REASON="the snapshot folder is a symlink"; SNAP=""
+    print "$SNAPROOT or the snapshot in it is a symlink, so Parliament is not loaded. Remove the link, then relaunch."
+  else
+    if [[ -d "$SNAP" ]] && pin_matches "$CONF/parliament.lock" "$SNAP"; then snap_lock "$SNAP"   # reuse
+    else snap_unlock "$SNAP"; rm -rf "$SNAP"; mkdir -p "$SNAPROOT" \
+           && "$RSYNC" -a --exclude '/.in_use' --exclude '/.git' "$PLUG/" "$SNAP/" && mkdir -p "$SNAP/.in_use" && snap_lock "$SNAP"; fi
+    if [[ -d "$SNAP" ]] && pin_matches "$CONF/parliament.lock" "$SNAP"; then PLUG="$SNAP"
+    else snap_unlock "$SNAP"; ENGINE=builtin PLUG="" PVER="" REASON="Parliament's files differ from the pin"; SNAP=""
+      print "Parliament's files changed while the watcher was copying them, so it is not loaded. Relaunch to try again."; fi
+  fi
 fi
 EJ=$(engine_json)
 FROZEN=(); [[ $ENGINE == parliament ]] && for g in $GRUMPS; do FROZEN+=("$MEMROOT/${MEMORY_PREFIX}-grumpy-$g"); done   # D4: frozen after the lock names them

@@ -112,12 +112,12 @@ fi   # end of A–E
 #   L5 or L6 fails → parliament_blocked: true; both pass → false (only a passing run clears it)
 # L2, L3, L5, L6 need Parliament installed exactly as pinned (config/parliament.lock); otherwise they are skipped and
 # parliament_blocked keeps its previous value.
-source $PRW/bin/prwatch-common.zsh
+source $PRW/bin/prwatch-common.zsh; source ${0:A:h}/live-check-lib.zsh   # l1_verdict, ba_next
 CV=$("$CLAUDE" --version); CV=${CV%% *}; SET=$PRW/config/settings.json; PLK=$PRW/config/parliament.lock; FBF=$PRW/config/engine-fallback.json
 PIN=$(jq -r '.install_path // ""' $PLK 2>/dev/null); pinned=0
 [[ -n $PIN && -d $PIN ]] && pin_matches $PLK $PIN && pinned=1
 MR=$HOME/.claude/agent-memory; FZ=(); LW=$PRW/work/prwatch__livecheck-pr1-0000000
-trap '/usr/bin/pkill -f "^sleep $SLP\$" 2>/dev/null; (( ${#FZ} )) && mem_thaw $MR $FZ >/dev/null; rm -rf $T $LW' EXIT
+trap '/usr/bin/pkill -f "^sleep $SLP\$" 2>/dev/null; (( ${#FZ} )) && mem_thaw $MR $FZ >/dev/null; rm -rf $T $LW $PRW/plugin-snap/parliament-livecheck' EXIT
 englock() { fresh; jq --arg e $1 '. + {engine:{engine:$e}}' $T/state/session.lock > $T/l && mv $T/l $T/state/session.lock; }
 wrun() {   # wrun <name> <cwd> [claude args…] — the watcher's REAL settings and hooks, test-mode state, launcher env
   local o=$1 d=$2; shift 2
@@ -160,10 +160,7 @@ print "     L9 SubagentStop: $(print -l $T/state/harness/*.ended(N:t) | head -3 
 # L1 is decided only on a conclusive run: L9 passed and the review said something. Naming old.py or the fake key means
 # the whole tree was reviewed (fail); naming new.py or its bug means the PR diff was (pass); anything else is a SKIP
 # that leaves builtin_agent as it was (one bad haiku run must not switch engines).
-l1=""; a9=$(atext l9)
-if (( l9 )) && [[ -n ${a9//[[:space:]]/} ]]; then
-  if   grep -q "old\.py\|$FAKEKEY" <<<$a9;            then l1=0
-  elif grep -qi 'new\.py\|a - b\|subtract' <<<$a9;   then l1=1; fi; fi
+l1=$(l1_verdict $l9 "$(atext l9)" $FAKEKEY)
 if [[ -n $l1 ]]; then chk "L1: /code-review on a worktree path reviews the PR diff (new.py), not the whole tree (old.py)" '(( l1 ))' "the launcher will use builtin-agent on this Claude Code version"
 else print "SKIP L1 (inconclusive: L9 failed, or the review named neither file; builtin_agent left as it was)"; fi
 L4C=("code-review|--comment $LW" "code-review|1803" "code-review|ultra $LW" "code-review|medium $PRW/bin" "review|low $LW")   # every one must be refused
@@ -173,6 +170,7 @@ print "     L4 gate saw: $(sort -u $T/state/harness/skillgate.log 2>/dev/null | 
 
 pb_fail=0; pb_ran=0
 if (( pinned )); then pb_ran=1
+  SNL=$PRW/plugin-snap/parliament-livecheck; rm -rf $SNL; mkdir -p $SNL && /usr/bin/rsync -a --exclude '/.in_use' --exclude '/.git' $PIN/ $SNL/   # an unlocked snapshot: L5 proves the sandbox alone refuses
   act=$HOME/.claude/plugins/data/chaos-inline/agent-logs/activity.jsonl; a0=$(wc -l < $act 2>/dev/null || print 0); : > $T/since
   for g in code-reviewer security-nag; do englock parliament; wrun l2$g $T --plugin-dir $PIN "$(printf "$PONG" chaos:grumpy-$g)"
     chk "L2: chaos:grumpy-$g foreground (completed), replied PONG, no fault marker" \
@@ -182,11 +180,11 @@ if (( pinned )); then pb_ran=1
   englock parliament; wrun l3 $T --plugin-dir $PIN "$(skprompt $L3C)"
   nchaos=$(jq -s '[.[] | select(.type=="system" and .subtype=="init") | (.slash_commands // [])[] | select(startswith("chaos:"))] | length' $T/l3.jsonl 2>/dev/null)
   chk "L3: --plugin-dir loaded Parliament (${nchaos:-0} chaos: commands) and all ${#L3C} commands refused by the skill gate" '(( ${nchaos:-0} > 0 )) && [[ $(rerr l3 Skill) == "$(trues ${#L3C})" ]] && gatelog ${#L3C}'
-  englock parliament; wrun l5 $T --plugin-dir $PIN "Run these three Bash commands one at a time, sandboxed as normal (each is expected to fail; do not retry or work around it): /usr/bin/touch $PIN/src/hooks/.env ; /usr/bin/touch $HOME/.claude/prwatch-live-x ; /usr/bin/touch /opt/homebrew/bin/prwatch-live-x"
-  made=($PIN/src/hooks/.env(N) $HOME/.claude/prwatch-live-x(N) /opt/homebrew/bin/prwatch-live-x(N)); (( ${#made} )) && rm -f $made
-  chk "L5: sandboxed writes to the plugin's hooks, ~/.claude and /opt/homebrew all refused" '(( $(uses l5 Bash | wc -l) >= 3 && ${#made} == 0 ))' || pb_fail=1
+  englock parliament; wrun l5 $T --plugin-dir $PIN "Run these four Bash commands one at a time, sandboxed as normal (each is expected to fail; do not retry or work around it): /usr/bin/touch $PIN/src/hooks/.env ; /usr/bin/touch $SNL/src/hooks/prwatch-live-x ; /usr/bin/touch $HOME/.claude/prwatch-live-x ; /usr/bin/touch /opt/homebrew/bin/prwatch-live-x"
+  made=($PIN/src/hooks/.env(N) $SNL/src/hooks/prwatch-live-x(N) $HOME/.claude/prwatch-live-x(N) /opt/homebrew/bin/prwatch-live-x(N)); (( ${#made} )) && rm -f $made
+  chk "L5: sandboxed writes to the plugin's hooks, the snapshot's hooks (plugin-snap/), ~/.claude and /opt/homebrew all refused" '(( $(uses l5 Bash | wc -l) >= 4 && ${#made} == 0 ))' || pb_fail=1
   a1=$(wc -l < $act 2>/dev/null || print 0)   # Claude Code itself runs `npm root --global` at start (cache/npm/_logs): not the plugin
-  new=$(find $PRW -newer $T/since -not -path "$PRW/state/activity" -not -path "$LW*" -not -path "$PRW/work" -not -path "$PRW/cache/npm/_logs*" 2>/dev/null)
+  new=$(find $PRW -newer $T/since -not -path "$PRW/state/activity" -not -path "$LW*" -not -path "$PRW/work" -not -path "$PRW/cache/npm/_logs*" -not -path "$SNL*" 2>/dev/null)
   chk "L5: the plugin's activity log grew and holds no tool_input/tool_response" '(( a1 > a0 )) && ! tail -n $(( a1 - a0 )) $act | grep -q "\"tool_input\"\|\"tool_response\""' || pb_fail=1
   chk "L5: nothing new under ~/prwatch but state/activity and Claude Code's npm logs" '[[ -z $new ]]' "new: ${new//$'\n'/ }" || pb_fail=1
   m0=$(memsnap); englock parliament; wrun l6a $T --plugin-dir $PIN "$(printf "$PONG" chaos:grumpy-code-reviewer)"; m1=$(memsnap)
@@ -208,7 +206,7 @@ if (( $(uses l8 CronCreate | wc -l) >= ${#L8C} )); then
 else print "SKIP L8 (the model made no CronCreate calls; re-run)"; fi
 pb=$(jq -r '.parliament_blocked // false' $FBF 2>/dev/null); (( pb_ran )) && { (( pb_fail )) && pb=true || pb=false; }
 [[ $pb == (true|false) ]] || pb=true
-case $l1 in 1) ba=0 ;; 0) ba=1 ;; *) [[ $(jq -r '.builtin_agent // false' $FBF 2>/dev/null) == true ]] && ba=1 || ba=0 ;; esac   # SKIP keeps it
+ba=$(ba_next "$l1" "$(jq -r '.builtin_agent // false' $FBF 2>/dev/null)")   # SKIP keeps it
 if [[ -f $FBF || $ba == 1 || $pb == true ]]; then
   case $l1 in 1) r1=passed ;; 0) r1=failed ;; *) r1="inconclusive (kept)" ;; esac; r5="not run"; (( pb_ran )) && { r5=passed; (( pb_fail )) && r5=failed; }
   why="live-check under Claude Code $CV: L1 $r1; L5/L6 $r5"

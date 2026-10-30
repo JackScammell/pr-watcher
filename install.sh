@@ -1,12 +1,12 @@
 #!/bin/zsh
 # Install / update the PR watcher from this repo into ~/prwatch and put the launcher on the Desktop.
-# Safe to re-run: never touches state/, repos/, cache/ or work/, nor config/engine-fallback.json (live-check.sh's).
+# Safe to re-run: never touches state/, repos/, cache/, work/ or plugin-snap/, nor config/engine-fallback.json (live-check.sh's).
 #   install.sh           install
 #   install.sh --repin   pin the Parliament of Chaos plugin as installed now: write watcher/config/parliament.lock
 #                        ({version, install_path, tree_sha256}), then install. Read the plugin's changes first; commit
 #                        the new lock in a re-pin PR (CONTRIBUTING.md). Never installs or updates the plugin itself.
 #   install.sh --thaw    unfreeze the reviewer memory folders a dead watcher window left frozen (its session.lock's
-#                        frozen_memory list) and unlock its Parliament snapshots (cache/parliament-*); refused while a
+#                        frozen_memory list) and unlock its Parliament snapshots (plugin-snap/parliament-*); refused while a
 #                        watcher window is still running. Installs nothing.
 # Neither flag is something the watcher session can run: install.sh is never a canonical watcher script.
 set -euo pipefail
@@ -26,7 +26,7 @@ case "${1:-}" in
       exit 1
     fi
     c=$(mem_thaw "$HOME/.claude/agent-memory" ${(f)"$(lock_frozen "$LOCK" || true)"})
-    for s in "$DEST"/cache/parliament-*(N/); do /usr/bin/chflags -R nouchg "$s"; done
+    for s in "$DEST"/plugin-snap/parliament-*(N/); do /usr/bin/chflags -R nouchg "$s"; done
     echo "Unfroze $c reviewer memory folder(s)."
     exit 0 ;;
   --repin)
@@ -47,13 +47,13 @@ if ls -lO "$DEST/bin" "$DEST/shims" 2>/dev/null | grep -q uchg; then
   exit 1
 fi
 
-mkdir -p "$DEST"/{state,repos,cache,work,gh-empty,test/state}
+mkdir -p "$DEST"/{state,repos,cache,work,plugin-snap,gh-empty,test/state}
 # parliament.lock is included before the *.lock exclusion (rsync: first match wins); engine-fallback.json is excluded,
 # so --delete-after never removes the one live-check.sh wrote.
 rsync -a --delete-after \
   --include '/config/parliament.lock' --exclude '/config/engine-fallback.json' \
   --exclude '*.lock' --exclude '*.log' \
-  --exclude state --exclude repos --exclude cache --exclude work --exclude gh-empty \
+  --exclude state --exclude repos --exclude cache --exclude work --exclude plugin-snap --exclude gh-empty \
   --exclude 'test/archive' --exclude 'test/builder-evidence' --exclude 'test/state' \
   "$SRC/" "$DEST/"
 chmod +x "$DEST"/bin/*.sh "$DEST"/shims/* "$DEST"/test/harness/*.sh "$DEST"/test/stub/osascript "$DEST"/test/sim2/*.sh 2>/dev/null || true

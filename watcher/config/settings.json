@@ -103,6 +103,8 @@
       "Read(~/Documents/GitHub/**)",
       "Edit(//Users/jack/prwatch/shims/**)",
       "Write(//Users/jack/prwatch/shims/**)",
+      "Edit(//Users/jack/prwatch/plugin-snap/**)",
+      "Write(//Users/jack/prwatch/plugin-snap/**)",
       "Skill(chaos:*)",
       "Skill(chaos:parliament-review)",
       "Skill(chaos:parliament-review *)",
@@ -179,6 +181,7 @@
         "/Users/jack/prwatch/state",
         "/Users/jack/prwatch/repos",
         "/Users/jack/prwatch/shims",
+      "/Users/jack/prwatch/plugin-snap",
         "/Users/jack/.claude",
         "/opt/homebrew"
       ]
